@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,44 +8,104 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import { CircularTimer } from '../../components/CircularTimer';
 import { COLORS } from '../../constants/theme';
-import { TIMER_MODES, AMBIENT_SOUNDS, QUOTES } from '../../constants/data';
+import { AMBIENT_SOUNDS, QUOTES } from '../../constants/data';
+import { useTimerSettings } from '../../context/TimerSettings';
 
+// One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
 
-export default function TimerScreen() {
-  const [modeIdx, setModeIdx] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(TIMER_MODES[0].duration);
-  const [isRunning, setIsRunning] = useState(false);
-  const [activeSounds, setActiveSounds] = useState<Record<string, boolean>>({});
-  const [sessionsCompleted, setSessions] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+// Mode definitions (durations are overridden by settings)
+const MODE_META = [
+  { id: 'focus', label: 'Focus', color: '#E8A87C' },
+  { id: 'short', label: 'Short Break', color: '#85CDCA' },
+  { id: 'long', label: 'Long Break', color: '#D4A5E5' },
+] as const;
 
-  const mode = TIMER_MODES[modeIdx];
+type ModeIndex = 0 | 1 | 2;
+
+/** After a focus session, pick short break (idx=1) or long break (idx=2). */
+function nextModeIndex(currentIdx: ModeIndex, completedFocusSessions: number): ModeIndex {
+  if (currentIdx !== 0) return 0; // Any break → back to focus
+  // Every 4th focus session earns a long break
+  return completedFocusSessions % 4 === 0 ? 2 : 1;
+}
+
+function formatTime(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+export default function TimerScreen() {
+  const { focusMins, shortBreakMins, longBreakMins, autoStart, keepAwakeEnabled } =
+    useTimerSettings();
+
+  // Derive effective mode durations from settings
+  const modes = useMemo(
+    () => [
+      { ...MODE_META[0], duration: focusMins * 60 },
+      { ...MODE_META[1], duration: shortBreakMins * 60 },
+      { ...MODE_META[2], duration: longBreakMins * 60 },
+    ],
+    [focusMins, shortBreakMins, longBreakMins]
+  );
+
+  const [modeIdx, setModeIdx] = useState<ModeIndex>(0);
+  const [timeLeft, setTimeLeft] = useState(modes[0].duration);
+  const [isRunning, setIsRunning] = useState(false);
+  const [focusSessions, setFocusSessions] = useState(0);
+  const [activeSounds] = useState<Record<string, boolean>>({});
+
+  const mode = modes[modeIdx];
   const progress = 1 - timeLeft / mode.duration;
 
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  };
-
+  // ── Keep screen awake during active focus sessions ─────────────────────────
   useEffect(() => {
-    if (isRunning && timeLeft > 0) {
-      intervalRef.current = setInterval(() => setTimeLeft((t) => t - 1), 1000);
-    } else if (timeLeft === 0 && isRunning) {
-      setIsRunning(false);
-      if (modeIdx === 0) setSessions((s) => s + 1);
+    if (isRunning && keepAwakeEnabled) {
+      activateKeepAwake('pomodoro');
+    } else {
+      deactivateKeepAwake('pomodoro');
     }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isRunning, timeLeft, modeIdx]);
+    return () => deactivateKeepAwake('pomodoro');
+  }, [isRunning, keepAwakeEnabled]);
 
-  const selectMode = (idx: number) => {
+  // ── Countdown ticker ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isRunning || timeLeft <= 0) return;
+    const id = setTimeout(() => setTimeLeft((t) => t - 1), 1000);
+    return () => clearTimeout(id);
+  }, [isRunning, timeLeft]);
+
+  // ── Session completion handler ──────────────────────────────────────────────
+  useEffect(() => {
+    if (timeLeft !== 0 || !isRunning) return;
+
+    setIsRunning(false);
+
+    const isFocus = modeIdx === 0;
+    const newFocusSessions = isFocus ? focusSessions + 1 : focusSessions;
+    if (isFocus) setFocusSessions(newFocusSessions);
+
+    const next = nextModeIndex(modeIdx, newFocusSessions);
+    const delay = autoStart ? 1500 : 0;
+
+    const timer = setTimeout(() => {
+      setModeIdx(next);
+      setTimeLeft(modes[next].duration);
+      if (autoStart) setIsRunning(true);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [timeLeft, isRunning]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ^ intentionally narrow deps: we snapshot modeIdx/focusSessions/modes/autoStart at completion time
+
+  // ── Controls ────────────────────────────────────────────────────────────────
+  const selectMode = (idx: ModeIndex) => {
     setModeIdx(idx);
-    setTimeLeft(TIMER_MODES[idx].duration);
+    setTimeLeft(modes[idx].duration);
     setIsRunning(false);
   };
 
@@ -54,7 +114,10 @@ export default function TimerScreen() {
     setIsRunning(false);
   };
 
-  const skipToNext = () => selectMode((modeIdx + 1) % TIMER_MODES.length);
+  const skipToNext = () => {
+    const next = nextModeIndex(modeIdx, focusSessions);
+    selectMode(next);
+  };
 
   const activeSoundIds = Object.keys(activeSounds);
 
@@ -77,19 +140,21 @@ export default function TimerScreen() {
               })}
             </Text>
           </View>
-          {sessionsCompleted > 0 && (
+          {focusSessions > 0 && (
             <View style={styles.sessionBadge}>
-              <Text style={styles.sessionBadgeText}>{sessionsCompleted} sessions</Text>
+              <Text style={styles.sessionBadgeText}>
+                {focusSessions} {focusSessions === 1 ? 'session' : 'sessions'}
+              </Text>
             </View>
           )}
         </View>
 
         {/* Mode selector */}
         <View style={styles.modeSelector}>
-          {TIMER_MODES.map((m, i) => (
+          {modes.map((m, i) => (
             <Pressable
               key={m.id}
-              onPress={() => selectMode(i)}
+              onPress={() => selectMode(i as ModeIndex)}
               style={[styles.modeBtn, modeIdx === i && styles.modeBtnActive]}
             >
               <Text
@@ -106,18 +171,34 @@ export default function TimerScreen() {
 
         {/* Timer ring */}
         <View style={styles.timerWrap}>
-          <CircularTimer
-            progress={progress}
-            size={260}
-            strokeWidth={6}
-            color={mode.color}
-          >
+          <CircularTimer progress={progress} size={260} strokeWidth={6} color={mode.color}>
             <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
             <Text style={styles.timerLabel}>
-              {isRunning ? 'focusing...' : mode.label.toLowerCase()}
+              {isRunning
+                ? modeIdx === 0
+                  ? 'focusing...'
+                  : 'resting...'
+                : mode.label.toLowerCase()}
             </Text>
+            {/* Session dots — one per focus session, resets after 4 */}
+            <View style={styles.sessionDots}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    { backgroundColor: i < focusSessions % 4 || (focusSessions > 0 && focusSessions % 4 === 0) ? mode.color : 'rgba(255,255,255,0.15)' },
+                  ]}
+                />
+              ))}
+            </View>
           </CircularTimer>
         </View>
+
+        {/* Auto-start indicator */}
+        {autoStart && (
+          <Text style={styles.autoStartHint}>auto-start on</Text>
+        )}
 
         {/* Controls */}
         <View style={styles.controls}>
@@ -127,13 +208,7 @@ export default function TimerScreen() {
 
           <Pressable
             onPress={() => setIsRunning((r) => !r)}
-            style={[
-              styles.playBtn,
-              {
-                backgroundColor: mode.color,
-                shadowColor: mode.color,
-              },
-            ]}
+            style={[styles.playBtn, { backgroundColor: mode.color, shadowColor: mode.color }]}
           >
             <Text style={styles.playBtnIcon}>{isRunning ? '⏸' : '▶'}</Text>
           </Pressable>
@@ -150,7 +225,9 @@ export default function TimerScreen() {
             {activeSoundIds.map((id) => {
               const s = AMBIENT_SOUNDS.find((x) => x.id === id);
               return s ? (
-                <Text key={id} style={styles.soundsEmoji}>{s.emoji}</Text>
+                <Text key={id} style={styles.soundsEmoji}>
+                  {s.emoji}
+                </Text>
               ) : null;
             })}
           </View>
@@ -231,7 +308,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   timerWrap: {
-    marginBottom: 32,
+    marginBottom: 12,
   },
   timerText: {
     fontSize: 56,
@@ -239,7 +316,10 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     letterSpacing: -1,
     fontVariant: ['tabular-nums'],
-    ...Platform.select({ ios: { fontFamily: 'Courier New' }, android: { fontFamily: 'monospace' } }),
+    ...Platform.select({
+      ios: { fontFamily: 'Courier New' },
+      android: { fontFamily: 'monospace' },
+    }),
   },
   timerLabel: {
     fontSize: 12,
@@ -248,11 +328,29 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.5,
   },
+  sessionDots: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  autoStartHint: {
+    fontSize: 11,
+    color: COLORS.textDim,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
     marginBottom: 24,
+    marginTop: 20,
   },
   controlBtn: {
     width: 48,

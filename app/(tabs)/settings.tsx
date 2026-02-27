@@ -1,22 +1,29 @@
-import { useState } from 'react';
 import { View, Text, Switch, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
+import { useTimerSettings } from '../../context/TimerSettings';
 
-type DurationSetting = { label: string; minutes: number };
+type DurationOption = { label: string; minutes: number };
 
-const FOCUS_OPTIONS: DurationSetting[]  = [
+const FOCUS_OPTIONS: DurationOption[] = [
   { label: '15 min', minutes: 15 },
   { label: '25 min', minutes: 25 },
   { label: '45 min', minutes: 45 },
   { label: '60 min', minutes: 60 },
 ];
 
-const BREAK_OPTIONS: DurationSetting[] = [
-  { label: '3 min',  minutes: 3 },
-  { label: '5 min',  minutes: 5 },
+const SHORT_BREAK_OPTIONS: DurationOption[] = [
+  { label: '3 min', minutes: 3 },
+  { label: '5 min', minutes: 5 },
   { label: '10 min', minutes: 10 },
   { label: '15 min', minutes: 15 },
+];
+
+const LONG_BREAK_OPTIONS: DurationOption[] = [
+  { label: '10 min', minutes: 10 },
+  { label: '15 min', minutes: 15 },
+  { label: '20 min', minutes: 20 },
+  { label: '30 min', minutes: 30 },
 ];
 
 function RowLabel({ title, sub }: { title: string; sub?: string }) {
@@ -57,7 +64,7 @@ function DurationPicker({
   selected,
   onSelect,
 }: {
-  options: DurationSetting[];
+  options: DurationOption[];
   selected: number;
   onSelect: (m: number) => void;
 }) {
@@ -67,10 +74,7 @@ function DurationPicker({
         <Pressable
           key={opt.minutes}
           onPress={() => onSelect(opt.minutes)}
-          style={[
-            styles.durationBtn,
-            selected === opt.minutes && styles.durationBtnActive,
-          ]}
+          style={[styles.durationBtn, selected === opt.minutes && styles.durationBtnActive]}
         >
           <Text
             style={[
@@ -87,13 +91,18 @@ function DurationPicker({
 }
 
 export default function SettingsScreen() {
-  const [focusMins, setFocusMins]       = useState(25);
-  const [shortBreakMins, setShortBreak] = useState(5);
-  const [longBreakMins, setLongBreak]   = useState(15);
-  const [autoStart, setAutoStart]       = useState(false);
-  const [notifications, setNotifications] = useState(true);
-  const [keepAwake, setKeepAwake]       = useState(true);
-  const [haptics, setHaptics]           = useState(true);
+  const {
+    focusMins,
+    shortBreakMins,
+    longBreakMins,
+    autoStart,
+    keepAwakeEnabled,
+    setFocusMins,
+    setShortBreakMins,
+    setLongBreakMins,
+    setAutoStart,
+    setKeepAwakeEnabled,
+  } = useTimerSettings();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -123,18 +132,18 @@ export default function SettingsScreen() {
           <View style={styles.card}>
             <Text style={styles.rowTitle}>Short Break</Text>
             <DurationPicker
-              options={BREAK_OPTIONS}
+              options={SHORT_BREAK_OPTIONS}
               selected={shortBreakMins}
-              onSelect={setShortBreak}
+              onSelect={setShortBreakMins}
             />
           </View>
 
           <View style={styles.card}>
             <Text style={styles.rowTitle}>Long Break</Text>
             <DurationPicker
-              options={BREAK_OPTIONS}
+              options={LONG_BREAK_OPTIONS}
               selected={longBreakMins}
-              onSelect={setLongBreak}
+              onSelect={setLongBreakMins}
             />
           </View>
         </View>
@@ -144,36 +153,17 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>Behaviour</Text>
           <View style={styles.card}>
             <ToggleRow
-              title="Auto-start breaks"
-              sub="Automatically start break timers"
+              title="Auto-start next session"
+              sub="Automatically start break and focus timers"
               value={autoStart}
               onChange={setAutoStart}
             />
             <View style={styles.divider} />
             <ToggleRow
               title="Keep screen awake"
-              sub="Prevent screen from sleeping during focus"
-              value={keepAwake}
-              onChange={setKeepAwake}
-            />
-            <View style={styles.divider} />
-            <ToggleRow
-              title="Haptic feedback"
-              value={haptics}
-              onChange={setHaptics}
-            />
-          </View>
-        </View>
-
-        {/* Notifications */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
-          <View style={styles.card}>
-            <ToggleRow
-              title="Session complete"
-              sub="Notify when a focus session ends"
-              value={notifications}
-              onChange={setNotifications}
+              sub="Prevent screen from sleeping during sessions"
+              value={keepAwakeEnabled}
+              onChange={setKeepAwakeEnabled}
             />
           </View>
         </View>

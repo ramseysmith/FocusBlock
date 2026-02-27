@@ -1,8 +1,14 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, ViewStyle } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 
 interface Props {
-  progress: number;   // 0 → 1
+  progress: number; // 0 → 1
   size: number;
   strokeWidth: number;
   color: string;
@@ -10,25 +16,38 @@ interface Props {
 }
 
 /**
- * Circular progress ring built with pure React Native Views using the
- * half-circle rotation technique (no SVG dependency required).
+ * Circular progress ring using Reanimated for smooth animation.
  *
- * Phase 1 (progress 0→0.5): the right-half cover rotates away clockwise,
- *   revealing the right arc from 12 o'clock to 6 o'clock.
- * Phase 2 (progress 0.5→1): the left-half cover rotates away clockwise,
- *   revealing the left arc from 6 o'clock to 12 o'clock.
+ * Uses the half-circle rotation technique:
+ * Phase 1 (progress 0→0.5): right cover sweeps away clockwise (reveals right arc).
+ * Phase 2 (progress 0.5→1): left cover sweeps away clockwise (reveals left arc).
  */
 export function CircularTimer({ progress, size, strokeWidth, color, children }: Props) {
   const half = size / 2;
-  const clamp = Math.max(0, Math.min(1, progress));
 
-  // Phase 1: right cover rotates from 0° → 180° as progress goes 0 → 0.5
-  const rightCoverDeg = Math.min(clamp * 2, 1) * 180;
-  // Phase 2: left cover rotates from 0° → 180° as progress goes 0.5 → 1
-  const leftCoverDeg = Math.max(0, (clamp - 0.5) * 2) * 180;
+  const rightCover = useSharedValue(0);
+  const leftCover = useSharedValue(0);
 
-  const ringStyle = {
-    position: 'absolute' as const,
+  useEffect(() => {
+    const c = Math.max(0, Math.min(1, progress));
+    const targetRight = Math.min(c * 2, 1) * 180;
+    const targetLeft = Math.max(0, (c - 0.5) * 2) * 180;
+
+    const config = { duration: 900, easing: Easing.out(Easing.cubic) };
+    rightCover.value = withTiming(targetRight, config);
+    leftCover.value = withTiming(targetLeft, config);
+  }, [progress]);
+
+  const rightStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rightCover.value}deg` }],
+  }));
+
+  const leftStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${-leftCover.value}deg` }],
+  }));
+
+  const ring: ViewStyle = {
+    position: 'absolute',
     width: size,
     height: size,
     borderRadius: half,
@@ -37,59 +56,47 @@ export function CircularTimer({ progress, size, strokeWidth, color, children }: 
 
   return (
     <View style={{ width: size, height: size }}>
-      {/* Track */}
-      <View style={[ringStyle, { borderColor: 'rgba(255,255,255,0.08)' }]} />
+      {/* Track ring */}
+      <View style={[ring, { borderColor: 'rgba(255,255,255,0.08)' }]} />
 
-      {/* Colored ring (always full) — covers will hide the unneeded parts */}
-      <View style={[ringStyle, { borderColor: color }]} />
+      {/* Colored ring (full circle — covers mask the unfilled portion) */}
+      <View style={[ring, { borderColor: color }]} />
 
-      {/* Right cover: bg-colored half that sweeps away to reveal right arc */}
-      <View style={[styles.clipHalf, { left: half, width: half, height: size }]}>
-        <View
+      {/* Right half-cover: sweeps away to reveal right arc (12→6 o'clock) */}
+      <View style={[styles.clip, { left: half, width: half, height: size }]}>
+        <Animated.View
           style={[
-            styles.coverInner,
-            {
-              left: -half,
-              width: size,
-              height: size,
-              backgroundColor: '#0d0b11',
-              transform: [{ rotate: `${rightCoverDeg}deg` }],
-            },
+            styles.cover,
+            { left: -half, width: size, height: size, backgroundColor: '#0d0b11' },
+            rightStyle,
           ]}
         />
       </View>
 
-      {/* Left cover: bg-colored half that sweeps away to reveal left arc */}
-      <View style={[styles.clipHalf, { left: 0, width: half, height: size }]}>
-        <View
+      {/* Left half-cover: sweeps away to reveal left arc (6→12 o'clock) */}
+      <View style={[styles.clip, { left: 0, width: half, height: size }]}>
+        <Animated.View
           style={[
-            styles.coverInner,
-            {
-              left: 0,
-              width: size,
-              height: size,
-              backgroundColor: '#0d0b11',
-              transform: [{ rotate: `${-leftCoverDeg}deg` }],
-            },
+            styles.cover,
+            { left: 0, width: size, height: size, backgroundColor: '#0d0b11' },
+            leftStyle,
           ]}
         />
       </View>
 
       {/* Center content */}
-      <View style={[StyleSheet.absoluteFillObject, styles.center]}>
-        {children}
-      </View>
+      <View style={[StyleSheet.absoluteFillObject, styles.center]}>{children}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  clipHalf: {
+  clip: {
     position: 'absolute',
     top: 0,
     overflow: 'hidden',
   },
-  coverInner: {
+  cover: {
     position: 'absolute',
     top: 0,
   },
