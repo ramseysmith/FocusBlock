@@ -6,6 +6,7 @@ import { TimerSettingsProvider } from '../context/TimerSettings';
 import { AudioMixerProvider } from '../context/AudioMixer';
 import { StatsProvider } from '../context/StatsStore';
 import { PremiumProvider } from '../context/PremiumContext';
+import { AchievementProvider } from '../context/AchievementContext';
 import { setupAndroidChannels } from '../lib/notifications';
 import { cleanupExpiredUnlocks } from '../lib/adStorage';
 import { AdManager } from '../src/services/ads/AdManager';
@@ -33,12 +34,14 @@ export default function RootLayout() {
     <PremiumProvider>
       <TimerSettingsProvider>
         <StatsProvider>
+          <AchievementProvider>
           <AudioMixerProvider>
             <StatusBar style="light" />
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
             </Stack>
           </AudioMixerProvider>
+          </AchievementProvider>
         </StatsProvider>
       </TimerSettingsProvider>
     </PremiumProvider>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, Dimensions, Pressable } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -15,6 +15,8 @@ import { getWeekData, formatMinutes, type WeekDay } from '../../lib/storage';
 import { BannerAd } from '../../components/ads/BannerAd';
 import { usePremium } from '../../context/PremiumContext';
 import { PaywallModal } from '../../components/paywall/PaywallModal';
+import { useAchievements, ACHIEVEMENTS } from '../../context/AchievementContext';
+import { buildAchievementStats, type AchievementDef, type UnlockedMap, type AchievementStats } from '../../src/services/AchievementService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -23,14 +25,10 @@ const CHART_H = 130;     // height of the bar area
 const LABEL_H = 22;      // height below bars for day labels
 const MIN_BAR_H = 4;     // minimum visible height for non-zero bars
 
-const ACHIEVEMENTS = [
-  { icon: '🎯', title: 'First Focus',  desc: 'Complete your first session',      check: (s: number, _m: number, _str: number) => s >= 1 },
-  { icon: '🔥', title: 'On Fire',      desc: '3-day streak',                     check: (_s: number, _m: number, str: number) => str >= 3 },
-  { icon: '⚡', title: 'Power Hour',   desc: 'Accumulate 60+ focus minutes',     check: (_s: number, m: number, _str: number) => m >= 60 },
-  { icon: '🏆', title: 'Deep Worker',  desc: 'Complete 10 sessions',             check: (s: number, _m: number, _str: number) => s >= 10 },
-  { icon: '🌙', title: 'Night Owl',    desc: 'Complete 25 sessions',             check: (s: number, _m: number, _str: number) => s >= 25 },
-  { icon: '💎', title: 'Diamond Mind', desc: 'Maintain a 7-day streak',          check: (_s: number, _m: number, str: number) => str >= 7 },
-] as const;
+// ── Achievement card constants ────────────────────────────────────────────────
+
+// Screen padding (20×2) + card padding (18×2) + 2 gaps of 8px between 3 columns
+const ACH_CARD_W = Math.floor((SCREEN_W - 40 - 36 - 16) / 3);
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -47,6 +45,49 @@ function StatCard({
     <View style={[styles.statCard, accent && styles.statCardAccent]}>
       <Text style={[styles.statValue, accent && styles.statValueAccent]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ── Achievement grid card ─────────────────────────────────────────────────────
+
+function AchCard({
+  ach,
+  unlocked,
+  achievementStats,
+}: {
+  ach: AchievementDef;
+  unlocked: UnlockedMap[keyof UnlockedMap];
+  achievementStats: AchievementStats;
+}) {
+  const isUnlocked = !!unlocked;
+  const prog = ach.progress(achievementStats);
+
+  return (
+    <View style={[styles.achCard, isUnlocked && styles.achCardUnlocked]}>
+      <Text style={[styles.achIcon, !isUnlocked && styles.achIconLocked]}>
+        {ach.icon}
+      </Text>
+      <Text
+        style={[styles.achTitle, !isUnlocked && styles.achTitleLocked]}
+        numberOfLines={2}
+      >
+        {ach.title}
+      </Text>
+      {isUnlocked ? (
+        <View style={styles.achCheckWrap}>
+          <Text style={styles.achCheckText}>✓</Text>
+        </View>
+      ) : (
+        <View style={styles.achProgressWrap}>
+          <View style={styles.achProgressTrack}>
+            <View style={[styles.achProgressFill, { width: `${Math.round(prog * 100)}%` }]} />
+          </View>
+          <Text style={styles.achProgressLabel} numberOfLines={1}>
+            {ach.progressLabel(achievementStats)}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -233,6 +274,9 @@ function WeekChart({
 export default function StatsScreen() {
   const { totalSessions, totalMinutes, streak, dailyData, isLoaded } = useStatsStore();
   const { isPremium, isLoaded: premiumLoaded } = usePremium();
+  const { unlockedMap } = useAchievements();
+
+  const achievementStats = useMemo(() => buildAchievementStats(dailyData), [dailyData]);
 
   const [weekOffset, setWeekOffset] = useState(0);
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -338,40 +382,23 @@ export default function StatsScreen() {
         />
         </Animated.View>
 
-        {/* Achievements */}
+        {/* Achievements grid */}
         <Animated.View style={[styles.card, cardStyle3]}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Achievements</Text>
             <Text style={styles.cardSub}>
-              {ACHIEVEMENTS.filter((a) => a.check(totalSessions, totalMinutes, streak)).length}
-              /{ACHIEVEMENTS.length} unlocked
+              {Object.keys(unlockedMap).length} / {ACHIEVEMENTS.length} unlocked
             </Text>
           </View>
-          <View style={styles.achievementList}>
-            {ACHIEVEMENTS.map((ach) => {
-              const unlocked = ach.check(totalSessions, totalMinutes, streak);
-              return (
-                <View
-                  key={ach.title}
-                  style={[styles.achievement, !unlocked && styles.achievementLocked]}
-                >
-                  <View style={[styles.achievementIcon, unlocked && styles.achievementIconUnlocked]}>
-                    <Text style={styles.achievementEmoji}>{ach.icon}</Text>
-                  </View>
-                  <View style={styles.achievementText}>
-                    <Text style={[styles.achievementTitle, unlocked && styles.achievementTitleUnlocked]}>
-                      {ach.title}
-                    </Text>
-                    <Text style={styles.achievementDesc}>{ach.desc}</Text>
-                  </View>
-                  {unlocked && (
-                    <View style={styles.checkBadge}>
-                      <Text style={styles.checkText}>✓</Text>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
+          <View style={styles.achGrid}>
+            {ACHIEVEMENTS.map((ach) => (
+              <AchCard
+                key={ach.id}
+                ach={ach}
+                unlocked={unlockedMap[ach.id]}
+                achievementStats={achievementStats}
+              />
+            ))}
           </View>
         </Animated.View>
 
@@ -498,38 +525,85 @@ const styles = StyleSheet.create({
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: 11, color: COLORS.textDim },
 
-  // ── Achievements
-  achievementList: { gap: 14 },
-  achievement: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  achievementLocked: { opacity: 0.3 },
-  achievementIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+  // ── Achievement grid
+  achGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  achCard: {
+    width: ACH_CARD_W,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.surfaceHighlight,
+    borderColor: COLORS.surfaceBorder,
+    padding: 10,
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 4,
+    minHeight: 108,
+    justifyContent: 'flex-start',
   },
-  achievementIconUnlocked: {
-    backgroundColor: 'rgba(232,168,124,0.1)',
-    borderColor: 'rgba(232,168,124,0.25)',
+  achCardUnlocked: {
+    backgroundColor: 'rgba(232,168,124,0.07)',
+    borderColor: 'rgba(232,168,124,0.22)',
   },
-  achievementEmoji: { fontSize: 22 },
-  achievementText: { flex: 1 },
-  achievementTitle: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500' },
-  achievementTitleUnlocked: { color: COLORS.textPrimary },
-  achievementDesc: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
-  checkBadge: {
+  achIcon: {
+    fontSize: 28,
+    marginBottom: 2,
+    lineHeight: 34,
+  },
+  achIconLocked: {
+    opacity: 0.28,
+  },
+  achTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
+  achTitleLocked: {
+    color: COLORS.textMuted,
+    fontWeight: '400',
+  },
+  achCheckWrap: {
+    marginTop: 'auto',
+    paddingTop: 6,
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: 'rgba(133,205,202,0.2)',
+    backgroundColor: 'rgba(133,205,202,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkText: { fontSize: 11, color: COLORS.shortBreak, fontWeight: '600' },
+  achCheckText: {
+    fontSize: 12,
+    color: COLORS.shortBreak,
+    fontWeight: '700',
+  },
+  achProgressWrap: {
+    width: '100%',
+    marginTop: 'auto',
+    paddingTop: 6,
+    gap: 3,
+  },
+  achProgressTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  achProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: COLORS.accent,
+    opacity: 0.5,
+  },
+  achProgressLabel: {
+    fontSize: 9,
+    color: COLORS.textDim,
+    textAlign: 'center',
+  },
 
   bannerAdContainer: { marginTop: 12, marginBottom: 8 },
 });
