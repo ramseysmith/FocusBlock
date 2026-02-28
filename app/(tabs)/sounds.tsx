@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,9 @@ import { VolumeSlider } from '../../components/VolumeSlider';
 import { RewardedAdButton } from '../../components/ads/RewardedAdButton';
 import { useAds } from '../../hooks/useAds';
 import { PaywallModal } from '../../components/paywall/PaywallModal';
+import { DriftPromoCard, DRIFT_APP_STORE_URL } from '../../components/DriftPromoCard';
+import { isDriftCardDismissed, dismissDriftCard, incrementDriftTapCount } from '../../lib/crossPromo';
+import * as Linking from 'expo-linking';
 
 // ── Quick mix button ──────────────────────────────────────────────────────────
 
@@ -191,6 +194,26 @@ export default function SoundsScreen() {
   const { isSoundLocked, grantSoundUnlock, isLoaded, isPremium } = useAds();
   const [paywallVisible, setPaywallVisible] = useState(false);
 
+  // ── Drift cross-promo card ───────────────────────────────────────────────────
+  // null = still checking AsyncStorage; false = hidden; true = visible
+  const [driftCardVisible, setDriftCardVisible] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    isDriftCardDismissed().then((dismissed) => {
+      setDriftCardVisible(!dismissed);
+    });
+  }, []);
+
+  const handleDriftTap = async () => {
+    await incrementDriftTapCount();
+    Linking.openURL(DRIFT_APP_STORE_URL);
+  };
+
+  const handleDriftDismiss = async () => {
+    setDriftCardVisible(false);
+    await dismissDriftCard();
+  };
+
   const activeSounds = AMBIENT_SOUNDS.filter((s) => soundStates[s.id as SoundId]?.isPlaying);
 
   /** Check if a quick mix is currently the active set (ignores volume) */
@@ -292,6 +315,14 @@ export default function SoundsScreen() {
             })}
           </Animated.View>
         </View>
+
+        {/* Drift cross-promo — free users only, not shown while checking or dismissed */}
+        {isLoaded && !isPremium && driftCardVisible === true && (
+          <DriftPromoCard
+            onPress={handleDriftTap}
+            onDismiss={handleDriftDismiss}
+          />
+        )}
 
         {/* Tip */}
         <View style={styles.tip}>
