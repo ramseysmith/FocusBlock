@@ -1,27 +1,47 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import type { AdService, AdProviderConfig, AdProvider, AdType, BannerAdSize, RewardItem } from './types';
 import type { ReactElement } from 'react';
+import { getAdUnits } from '../../config/adUnits';
 
 const LOG = '[AdManager]';
 
-// ── Config from app.config.ts extra ───────────────────────────────────────────
+// ── Config from app.config.ts extra + adUnits placement map ───────────────────
+//
+// Unit IDs come from adUnits.ts (placement-aware, reads Constants.expoConfig.extra
+// at call time and falls back to Google test IDs).
+// App IDs and SDK credentials still come directly from extra.
 
 function readConfig(): AdProviderConfig {
   const extra = Constants.expoConfig?.extra ?? {};
+  const provider: AdProvider = (extra.adProvider as AdProvider) ?? 'mock';
+
+  // Resolve per-placement unit IDs for all three placements.
+  const units = getAdUnits();
+  const os = Platform.OS;
+
   return {
-    provider:                     (extra.adProvider as AdProvider) ?? 'mock',
-    admobAndroidAppId:            extra.admobAndroidAppId,
-    admobIosAppId:                extra.admobIosAppId,
-    admobBannerAndroid:           extra.admobBannerAndroid,
-    admobBannerIos:               extra.admobBannerIos,
-    admobInterstitialAndroid:     extra.admobInterstitialAndroid,
-    admobInterstitialIos:         extra.admobInterstitialIos,
-    admobRewardedAndroid:         extra.admobRewardedAndroid,
-    admobRewardedIos:             extra.admobRewardedIos,
-    unityGameId:                  extra.unityGameId,
-    unityBannerPlacement:         extra.unityBannerPlacement,
-    unityInterstitialPlacement:   extra.unityInterstitialPlacement,
-    unityRewardedPlacement:       extra.unityRewardedPlacement,
+    provider,
+
+    // AdMob app IDs (needed by the native plugin, not unit IDs)
+    admobAndroidAppId: extra.admobAndroidAppId,
+    admobIosAppId:     extra.admobIosAppId,
+
+    // AdMob unit IDs — resolved from placement config, keyed by platform
+    admobBannerAndroid:           units.banner_stats.admob.android,
+    admobBannerIos:               units.banner_stats.admob.ios,
+    admobInterstitialAndroid:     units.interstitial_session.admob.android,
+    admobInterstitialIos:         units.interstitial_session.admob.ios,
+    admobRewardedAndroid:         units.rewarded_unlock.admob.android,
+    admobRewardedIos:             units.rewarded_unlock.admob.ios,
+
+    // Unity credentials
+    unityGameId: extra.unityGameId,
+
+    // Unity placement IDs — resolved per platform from placement config
+    unityBannerPlacement:       os === 'ios' ? units.banner_stats.unity.ios         : units.banner_stats.unity.android,
+    unityInterstitialPlacement: os === 'ios' ? units.interstitial_session.unity.ios : units.interstitial_session.unity.android,
+    unityRewardedPlacement:     os === 'ios' ? units.rewarded_unlock.unity.ios      : units.rewarded_unlock.unity.android,
   };
 }
 
