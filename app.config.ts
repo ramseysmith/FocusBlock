@@ -6,6 +6,11 @@ export const AD_PROVIDER = (
   process.env.AD_PROVIDER ?? 'mock'
 ) as 'admob' | 'unity' | 'mock';
 
+// ── Ad mediation ───────────────────────────────────────────────────────────────
+// When true, AdManager uses MediatedAdAdapter (AdMob primary → Unity fallback)
+// regardless of AD_PROVIDER. Flip to true when you're ready to run a waterfall.
+export const MEDIATION_ENABLED = process.env.MEDIATION_ENABLED === 'true';
+
 // ── AdMob app IDs ─────────────────────────────────────────────────────────────
 // Google's public test app IDs — safe for development builds.
 // Replace with real IDs from https://apps.admob.com before shipping.
@@ -41,6 +46,10 @@ export default function config({ config }: ConfigContext): ExpoConfig {
 
       // Which ad SDK to use: 'admob' | 'unity' | 'mock'
       adProvider: AD_PROVIDER,
+
+      // When true, AdManager runs a mediated waterfall (AdMob → Unity).
+      // AD_PROVIDER is ignored while mediation is enabled.
+      mediationEnabled: MEDIATION_ENABLED,
 
       // AdMob ── app IDs (injected into AndroidManifest / Info.plist by plugin)
       admobAndroidAppId,

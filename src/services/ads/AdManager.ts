@@ -81,19 +81,45 @@ class AdManagerClass {
 
     this.initPromise = (async () => {
       const config = readConfig();
-      console.log(LOG, `Initializing provider: ${config.provider}`);
+      const extra = Constants.expoConfig?.extra ?? {};
+      const mediationEnabled = extra.mediationEnabled === true;
+
+      console.log(
+        LOG,
+        mediationEnabled
+          ? 'Initializing mediated waterfall (AdMob → Unity)'
+          : `Initializing provider: ${config.provider}`
+      );
 
       try {
-        const adapter = await createAdapter(config.provider);
+        let adapter: AdService;
+
+        if (mediationEnabled) {
+          // Build the waterfall: AdMob is primary, Unity is fallback.
+          // Import all three modules in parallel to avoid sequential round-trips.
+          const [{ AdMobAdapter }, { UnityAdsAdapter }, { MediatedAdAdapter }] =
+            await Promise.all([
+              import('./adapters/AdMobAdapter'),
+              import('./adapters/UnityAdsAdapter'),
+              import('./adapters/MediatedAdAdapter'),
+            ]);
+          adapter = new MediatedAdAdapter([new AdMobAdapter(), new UnityAdsAdapter()]);
+        } else {
+          adapter = await createAdapter(config.provider);
+        }
+
         const ok = await adapter.initialize(config);
         if (ok) {
           this.adapter = adapter;
-          console.log(LOG, `Provider ${config.provider} ready`);
+          console.log(
+            LOG,
+            mediationEnabled ? 'Mediated waterfall ready' : `Provider ${config.provider} ready`
+          );
           return;
         }
-        throw new Error(`${config.provider} adapter returned false from initialize()`);
+        throw new Error('Adapter returned false from initialize()');
       } catch (err) {
-        console.warn(LOG, `Provider "${config.provider}" failed, falling back to mock:`, err);
+        console.warn(LOG, 'Initialization failed, falling back to mock:', err);
         try {
           const mock = await createMock();
           await mock.initialize(config);
