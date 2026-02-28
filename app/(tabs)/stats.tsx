@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, Dimensions, Pressable } from 'react-native';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, Dimensions, Pressable, ActivityIndicator } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
+import * as Sharing from 'expo-sharing';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -17,6 +19,7 @@ import { usePremium } from '../../context/PremiumContext';
 import { PaywallModal } from '../../components/paywall/PaywallModal';
 import { useAchievements, ACHIEVEMENTS } from '../../context/AchievementContext';
 import { buildAchievementStats, type AchievementDef, type UnlockedMap, type AchievementStats } from '../../src/services/AchievementService';
+import { ShareCard, CARD_W, CARD_H } from '../../components/ShareCard';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -280,6 +283,10 @@ export default function StatsScreen() {
 
   const [weekOffset, setWeekOffset] = useState(0);
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  // Ref attached to the off-screen ShareCard for ViewShot capture
+  const shareCardRef = useRef<View>(null);
 
   // ── Stagger entrance animations ─────────────────────────────────────────────
   const op0 = useSharedValue(0); const ty0 = useSharedValue(28);
@@ -319,6 +326,38 @@ export default function StatsScreen() {
     if (weekOffset < 0) setWeekOffset((prev) => prev + 1);
   };
 
+  // ── Share card ───────────────────────────────────────────────────────────────
+  const shareDateLabel = useMemo(() => {
+    const now = new Date();
+    const day = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+    const month = now.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+    const date = now.getDate();
+    return `${day} · ${month} ${date}`;
+  }, []);
+
+  const handleShare = async () => {
+    if (!shareCardRef.current || sharing) return;
+    setSharing(true);
+    try {
+      const uri = await captureRef(shareCardRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+        width: 1080,
+        height: 1920,
+      });
+      await Sharing.shareAsync(uri, {
+        mimeType: 'image/png',
+        dialogTitle: 'Share Your Focus',
+        UTI: 'public.png',
+      });
+    } catch {
+      // Ignore: user cancelled share sheet or capture failed silently
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -328,8 +367,21 @@ export default function StatsScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Focus Stats</Text>
-          <Text style={styles.screenSub}>All-time • {isLoaded ? `${totalSessions} sessions` : '—'}</Text>
+          <View>
+            <Text style={styles.screenTitle}>Focus Stats</Text>
+            <Text style={styles.screenSub}>All-time • {isLoaded ? `${totalSessions} sessions` : '—'}</Text>
+          </View>
+          <Pressable
+            style={[styles.shareBtn, sharing && styles.shareBtnBusy]}
+            onPress={handleShare}
+            disabled={sharing || !isLoaded}
+          >
+            {sharing ? (
+              <ActivityIndicator size="small" color={COLORS.bgDark} />
+            ) : (
+              <Text style={styles.shareBtnText}>Share ↑</Text>
+            )}
+          </Pressable>
         </View>
 
         {/* Top stat cards */}
@@ -408,6 +460,17 @@ export default function StatsScreen() {
       </ScrollView>
 
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
+
+      {/* Off-screen ShareCard — rendered but invisible; used for ViewShot capture only */}
+      <View style={styles.offScreenCapture} pointerEvents="none">
+        <ShareCard
+          ref={shareCardRef}
+          sessions={todayData?.sessions ?? 0}
+          todayMinutes={todayData?.minutes ?? 0}
+          streak={streak}
+          dateLabel={shareDateLabel}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -419,9 +482,39 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   container: { paddingHorizontal: 20, paddingBottom: 40 },
 
-  header: { paddingTop: 16, paddingBottom: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 16, paddingBottom: 20 },
   screenTitle: { fontSize: 22, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 3 },
   screenSub: { fontSize: 12, color: COLORS.textTiny },
+
+  // ── Share button
+  shareBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareBtnBusy: {
+    opacity: 0.7,
+  },
+  shareBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.bgDark,
+    letterSpacing: 0.2,
+  },
+
+  // ── Off-screen capture container
+  offScreenCapture: {
+    position: 'absolute',
+    left: -CARD_W - 10,
+    top: 0,
+    width: CARD_W,
+    height: CARD_H,
+    overflow: 'hidden',
+  },
 
   // ── Stat cards
   statRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
