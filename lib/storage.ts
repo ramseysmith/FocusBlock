@@ -94,8 +94,9 @@ export function calcStreak(data: DailyData): number {
 }
 
 /**
- * Returns 7 entries for Mon → Sun of the current calendar week.
- * Days in the future have `isFuture: true`.
+ * Returns 7 entries for Mon → Sun of a calendar week.
+ * `weekOffset = 0` = current week; `-1` = previous week, etc.
+ * Days in future calendar dates still get `isFuture: true`.
  */
 export type WeekDay = {
   label: string;   // 'Mon', 'Tue', …
@@ -108,16 +109,16 @@ export type WeekDay = {
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-export function getWeekData(data: DailyData): WeekDay[] {
+export function getWeekData(data: DailyData, weekOffset = 0): WeekDay[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayKey = toDateKey(today);
 
-  // Find Monday of the current week
+  // Find Monday of the target week
   const dow = today.getDay(); // 0 = Sun
   const daysFromMon = dow === 0 ? 6 : dow - 1;
   const monday = new Date(today);
-  monday.setDate(today.getDate() - daysFromMon);
+  monday.setDate(today.getDate() - daysFromMon + weekOffset * 7);
 
   return Array.from({ length: 7 }, (_, i) => {
     const date = new Date(monday);

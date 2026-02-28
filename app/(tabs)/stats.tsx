@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Dimensions, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Rect, G, Text as SvgText, Line, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { COLORS } from '../../constants/theme';
@@ -7,6 +7,7 @@ import { useStatsStore } from '../../context/StatsStore';
 import { getWeekData, formatMinutes, type WeekDay } from '../../lib/storage';
 import { BannerAd } from '../../components/ads/BannerAd';
 import { usePremium } from '../../context/PremiumContext';
+import { PaywallModal } from '../../components/paywall/PaywallModal';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,19 @@ function StatCard({
 
 // ── Weekly bar chart ──────────────────────────────────────────────────────────
 
-function WeekChart({ weekData }: { weekData: WeekDay[] }) {
+function WeekChart({
+  weekData,
+  weekOffset,
+  onPrevWeek,
+  onNextWeek,
+  isPremium,
+}: {
+  weekData: WeekDay[];
+  weekOffset: number;
+  onPrevWeek: () => void;
+  onNextWeek: () => void;
+  isPremium: boolean;
+}) {
   const [chartWidth, setChartWidth] = useState(0);
 
   const maxMins = Math.max(...weekData.map((d) => d.minutes), 1);
@@ -66,12 +79,38 @@ function WeekChart({ weekData }: { weekData: WeekDay[] }) {
   })();
 
   const svgH = CHART_H + LABEL_H;
+  const canGoNext = weekOffset < 0;
+  const canGoPrev = isPremium;
 
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>This Week</Text>
-        <Text style={styles.cardSub}>{rangeLabel}</Text>
+        {/* Prev arrow */}
+        <Pressable
+          onPress={onPrevWeek}
+          hitSlop={10}
+          style={[styles.navArrow, !canGoPrev && styles.navArrowDisabled]}
+        >
+          <Text style={[styles.navArrowText, !canGoPrev && styles.navArrowTextDisabled]}>←</Text>
+        </Pressable>
+
+        {/* Title */}
+        <View style={styles.chartTitleWrap}>
+          <Text style={styles.cardTitle}>{weekOffset === 0 ? 'This Week' : rangeLabel}</Text>
+          {weekOffset === 0 && (
+            <Text style={styles.cardSub}>{rangeLabel}</Text>
+          )}
+        </View>
+
+        {/* Next arrow */}
+        <Pressable
+          onPress={onNextWeek}
+          hitSlop={10}
+          style={[styles.navArrow, !canGoNext && styles.navArrowDisabled]}
+          disabled={!canGoNext}
+        >
+          <Text style={[styles.navArrowText, !canGoNext && styles.navArrowTextDisabled]}>→</Text>
+        </Pressable>
       </View>
 
       <View
@@ -97,7 +136,6 @@ function WeekChart({ weekData }: { weekData: WeekDay[] }) {
               const x = i * (BAR_W + BAR_GAP);
               const barH = getBarH(day.minutes);
               const barY = CHART_H - barH;
-              const isPast = !day.isToday && !day.isFuture && day.minutes === 0;
 
               return (
                 <G key={day.key}>
@@ -175,6 +213,9 @@ function WeekChart({ weekData }: { weekData: WeekDay[] }) {
           <View style={[styles.legendDot, { backgroundColor: 'rgba(255,255,255,0.22)' }]} />
           <Text style={styles.legendText}>Past days</Text>
         </View>
+        {!isPremium && (
+          <Text style={styles.historyHint}>Pro unlocks history</Text>
+        )}
       </View>
     </View>
   );
@@ -186,11 +227,26 @@ export default function StatsScreen() {
   const { totalSessions, totalMinutes, streak, dailyData, isLoaded } = useStatsStore();
   const { isPremium, isLoaded: premiumLoaded } = usePremium();
 
-  const weekData = getWeekData(dailyData);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+
+  const weekData = getWeekData(dailyData, weekOffset);
   const weekMinutes = weekData.reduce((sum, d) => sum + d.minutes, 0);
   const weekSessions = weekData.reduce((sum, d) => sum + d.sessions, 0);
 
   const todayData = weekData.find((d) => d.isToday);
+
+  const handlePrevWeek = () => {
+    if (!isPremium) {
+      setPaywallVisible(true);
+      return;
+    }
+    setWeekOffset((prev) => prev - 1);
+  };
+
+  const handleNextWeek = () => {
+    if (weekOffset < 0) setWeekOffset((prev) => prev + 1);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -244,8 +300,14 @@ export default function StatsScreen() {
           )}
         </View>
 
-        {/* Weekly bar chart */}
-        <WeekChart weekData={weekData} />
+        {/* Weekly bar chart with nav */}
+        <WeekChart
+          weekData={weekData}
+          weekOffset={weekOffset}
+          onPrevWeek={handlePrevWeek}
+          onNextWeek={handleNextWeek}
+          isPremium={isPremium}
+        />
 
         {/* Achievements */}
         <View style={styles.card}>
@@ -288,6 +350,8 @@ export default function StatsScreen() {
           <BannerAd placement="banner_stats" size="banner" style={styles.bannerAdContainer} />
         )}
       </ScrollView>
+
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -359,16 +423,47 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     marginBottom: 18,
   },
+  chartTitleWrap: {
+    flex: 1,
+    alignItems: 'center',
+  },
   cardTitle: { fontSize: 13, fontWeight: '500', color: COLORS.textMuted, letterSpacing: 0.3 },
-  cardSub: { fontSize: 11, color: COLORS.textDim },
+  cardSub: { fontSize: 11, color: COLORS.textDim, marginTop: 2 },
+
+  // ── Week nav arrows
+  navArrow: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navArrowDisabled: {
+    opacity: 0.25,
+  },
+  navArrowText: {
+    fontSize: 18,
+    color: COLORS.textMuted,
+    fontWeight: '500',
+  },
+  navArrowTextDisabled: {
+    color: COLORS.textDim,
+  },
+  historyHint: {
+    fontSize: 10,
+    color: COLORS.textDim,
+    marginLeft: 'auto',
+    fontStyle: 'italic',
+  },
+
   chartArea: { width: '100%' },
   chartLegend: {
     flexDirection: 'row',
     gap: 16,
     marginTop: 14,
+    alignItems: 'center',
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },

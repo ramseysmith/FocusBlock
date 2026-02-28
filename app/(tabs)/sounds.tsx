@@ -14,6 +14,7 @@ import { useAudioMixer, type SoundId } from '../../context/AudioMixer';
 import { VolumeSlider } from '../../components/VolumeSlider';
 import { RewardedAdButton } from '../../components/ads/RewardedAdButton';
 import { useAds } from '../../hooks/useAds';
+import { PaywallModal } from '../../components/paywall/PaywallModal';
 
 // ── Quick mix button ──────────────────────────────────────────────────────────
 
@@ -40,6 +41,32 @@ function MixButton({
         {mix.label}
       </Text>
     </Pressable>
+  );
+}
+
+// ── Locked mixes card (free users) ────────────────────────────────────────────
+
+function PremiumMixesLock({
+  mixes,
+  onUpgrade,
+}: {
+  mixes: readonly Mix[];
+  onUpgrade: () => void;
+}) {
+  return (
+    <View style={styles.mixLockCard}>
+      {/* Dim preview of mix names */}
+      <View style={styles.mixLockPreview}>
+        {mixes.map((m) => (
+          <View key={m.label} style={styles.mixLockChip}>
+            <Text style={styles.mixLockChipText}>{m.label}</Text>
+          </View>
+        ))}
+      </View>
+      <Pressable style={styles.mixLockCta} onPress={onUpgrade}>
+        <Text style={styles.mixLockCtaText}>Unlock with FocusBlock Pro →</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -82,7 +109,7 @@ function SoundRow({
             {sound.label}
           </Text>
           {isLocked ? (
-            <Text style={styles.lockedSub}>Premium · Watch ad to unlock</Text>
+            <Text style={styles.lockedSub}>Watch ad for 24h · Go Premium to keep forever</Text>
           ) : isPlaying ? (
             <Text style={[styles.soundSub, { color: COLORS.accent + 'aa' }]}>
               {Math.round(volume * 100)}%
@@ -139,7 +166,8 @@ function SoundRow({
 
 export default function SoundsScreen() {
   const { soundStates, toggleSound, setVolume, applyMix, stopAll } = useAudioMixer();
-  const { isSoundLocked, grantSoundUnlock, isLoaded } = useAds();
+  const { isSoundLocked, grantSoundUnlock, isLoaded, isPremium } = useAds();
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   const activeSounds = AMBIENT_SOUNDS.filter((s) => soundStates[s.id as SoundId]?.isPlaying);
 
@@ -184,23 +212,29 @@ export default function SoundsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Quick Mixes</Text>
-            {activeSounds.length > 0 && (
+            {activeSounds.length > 0 && isPremium && (
               <Pressable onPress={stopAll} hitSlop={8}>
                 <Text style={styles.stopAllText}>Stop all</Text>
               </Pressable>
             )}
           </View>
-          <View style={styles.mixRow}>
-            {QUICK_MIXES.map((mix) => (
-              <MixButton
-                key={mix.label}
-                mix={mix}
-                isActive={isMixActive(mix)}
-                onPress={() => handleApplyMix(mix)}
-                disabled={isLoaded && mix.sounds.some((id) => isSoundLocked(id))}
-              />
-            ))}
-          </View>
+
+          {/* Gate: show lock card for free users, nothing while loading, mixes for premium */}
+          {!isLoaded ? null : isPremium ? (
+            <View style={styles.mixRow}>
+              {QUICK_MIXES.map((mix) => (
+                <MixButton
+                  key={mix.label}
+                  mix={mix}
+                  isActive={isMixActive(mix)}
+                  onPress={() => handleApplyMix(mix)}
+                  disabled={applyingMix !== null && applyingMix !== mix.label}
+                />
+              ))}
+            </View>
+          ) : (
+            <PremiumMixesLock mixes={QUICK_MIXES} onUpgrade={() => setPaywallVisible(true)} />
+          )}
         </View>
 
         {/* Sounds list */}
@@ -243,6 +277,8 @@ export default function SoundsScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -327,6 +363,48 @@ const styles = StyleSheet.create({
   mixBtnTextActive: {
     color: COLORS.accent,
     fontWeight: '500',
+  },
+  mixBtnDisabled: {
+    opacity: 0.4,
+  },
+
+  // ── Premium mixes lock card
+  mixLockCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceBorder,
+    backgroundColor: COLORS.surface,
+    padding: 16,
+    alignItems: 'center',
+    gap: 14,
+  },
+  mixLockPreview: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    opacity: 0.35,
+  },
+  mixLockChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceBorder,
+    backgroundColor: COLORS.surfaceHighlight,
+  },
+  mixLockChipText: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  mixLockCta: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  mixLockCtaText: {
+    fontSize: 13,
+    color: COLORS.accent,
+    fontWeight: '600',
   },
 
   // ── Sound list
@@ -414,7 +492,7 @@ const styles = StyleSheet.create({
   // ── Volume slider (spans full row when active)
   sliderWrap: {
     width: '100%',
-    paddingLeft: 58,  // align with text after icon (44px icon + 14px gap)
+    paddingLeft: 58,
     paddingRight: 4,
     paddingTop: 10,
     paddingBottom: 2,
@@ -436,9 +514,6 @@ const styles = StyleSheet.create({
   },
   unlockBtnText: {
     fontSize: 12,
-  },
-  mixBtnDisabled: {
-    opacity: 0.4,
   },
 
   // ── Tip

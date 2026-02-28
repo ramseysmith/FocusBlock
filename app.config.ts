@@ -41,6 +41,7 @@ export default function config({ config }: ConfigContext): ExpoConfig {
         },
       ],
       withUnityAds,
+      ['react-native-purchases', {}],
     ],
 
     extra: {
@@ -83,6 +84,13 @@ export default function config({ config }: ConfigContext): ExpoConfig {
       unityBannerPlacement:       process.env.UNITY_BANNER_PLACEMENT       ?? 'Banner_Android',
       unityInterstitialPlacement: process.env.UNITY_INTERSTITIAL_PLACEMENT ?? 'Interstitial_Android',
       unityRewardedPlacement:     process.env.UNITY_REWARDED_PLACEMENT     ?? 'Rewarded_Android',
+
+      // ── In-app purchases / subscriptions ────────────────────────────────────
+      // Set PURCHASE_PROVIDER=revenuecat and supply RC keys for production.
+      purchaseProvider:          process.env.PURCHASE_PROVIDER           ?? 'mock',
+      revenueCatIosKey:          process.env.REVENUECAT_IOS_KEY          ?? '',
+      revenueCatAndroidKey:      process.env.REVENUECAT_ANDROID_KEY      ?? '',
+      revenueCatEntitlementId:   process.env.REVENUECAT_ENTITLEMENT_ID   ?? 'premium',
     },
   };
 }

@@ -1,14 +1,24 @@
-import { useState } from 'react';
-import { View, Text, Switch, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
+import { useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  Switch,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  TextInput,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import { useTimerSettings } from '../../context/TimerSettings';
 import {
   requestPermissions,
-  hasPermissions,
   scheduleReminder,
   cancelReminder,
 } from '../../lib/notifications';
+import { usePremium } from '../../context/PremiumContext';
+import { PaywallModal } from '../../components/paywall/PaywallModal';
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -87,24 +97,88 @@ function DurationPicker({
   options,
   selected,
   onSelect,
+  isPremium,
+  onUpgrade,
 }: {
   options: DurationOption[];
   selected: number;
   onSelect: (m: number) => void;
+  isPremium: boolean;
+  onUpgrade: () => void;
 }) {
+  const isCustom = !options.some((o) => o.minutes === selected);
+  const [showInput, setShowInput] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const [inputError, setInputError] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+
+  const handleCustomTap = () => {
+    if (!isPremium) {
+      onUpgrade();
+      return;
+    }
+    setInputValue(isCustom ? String(selected) : '');
+    setInputError(false);
+    setShowInput((prev) => !prev);
+  };
+
+  const handleInputSubmit = () => {
+    const parsed = parseInt(inputValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 240) {
+      setInputError(true);
+      return;
+    }
+    onSelect(parsed);
+    setShowInput(false);
+    setInputError(false);
+  };
+
+  const customLabel = isCustom ? `${selected}m` : 'Custom ✦';
+
   return (
-    <View style={styles.durationPicker}>
-      {options.map((opt) => (
+    <View>
+      <View style={styles.durationPicker}>
+        {options.map((opt) => (
+          <Pressable
+            key={opt.minutes}
+            onPress={() => { onSelect(opt.minutes); setShowInput(false); }}
+            style={[styles.chip, selected === opt.minutes && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, selected === opt.minutes && styles.chipTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
         <Pressable
-          key={opt.minutes}
-          onPress={() => onSelect(opt.minutes)}
-          style={[styles.chip, selected === opt.minutes && styles.chipActive]}
+          onPress={handleCustomTap}
+          style={[styles.chip, isCustom && styles.chipActive, styles.chipCustom]}
         >
-          <Text style={[styles.chipText, selected === opt.minutes && styles.chipTextActive]}>
-            {opt.label}
+          <Text style={[styles.chipText, isCustom && styles.chipTextActive, styles.chipCustomText]}>
+            {customLabel}
           </Text>
         </Pressable>
-      ))}
+      </View>
+
+      {showInput && (
+        <View style={styles.customInputRow}>
+          <TextInput
+            ref={inputRef}
+            style={[styles.customInput, inputError && styles.customInputError]}
+            value={inputValue}
+            onChangeText={(t) => { setInputValue(t); setInputError(false); }}
+            placeholder="1–240 min"
+            placeholderTextColor={COLORS.textDim}
+            keyboardType="number-pad"
+            maxLength={3}
+            returnKeyType="done"
+            onSubmitEditing={handleInputSubmit}
+            autoFocus
+          />
+          <Pressable style={styles.customInputBtn} onPress={handleInputSubmit}>
+            <Text style={styles.customInputBtnText}>Set</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -150,6 +224,9 @@ export default function SettingsScreen() {
     setNotificationsEnabled, setReminderEnabled, setReminderHour, setReminderMinute,
   } = useTimerSettings();
 
+  const { isPremium } = usePremium();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+
   // ── Notification permission helpers ───────────────────────────────────────
 
   const ensurePermissions = async (): Promise<boolean> => {
@@ -170,7 +247,6 @@ export default function SettingsScreen() {
       if (!granted) return;
     }
     setNotificationsEnabled(enabled);
-    // If turning off notifications entirely, also disable the reminder
     if (!enabled && reminderEnabled) {
       setReminderEnabled(false);
       await cancelReminder();
@@ -197,6 +273,12 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleDevResetPremium = async () => {
+    const { MockPurchaseAdapter } = await import('../../src/services/purchases/adapters/MockPurchaseAdapter');
+    await MockPurchaseAdapter.resetPremium();
+    Alert.alert('Premium Reset', 'Restart the app to apply the change.');
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -215,17 +297,35 @@ export default function SettingsScreen() {
 
           <View style={styles.card}>
             <Text style={styles.pickerLabel}>Focus</Text>
-            <DurationPicker options={FOCUS_OPTIONS} selected={focusMins} onSelect={setFocusMins} />
+            <DurationPicker
+              options={FOCUS_OPTIONS}
+              selected={focusMins}
+              onSelect={setFocusMins}
+              isPremium={isPremium}
+              onUpgrade={() => setPaywallVisible(true)}
+            />
           </View>
 
           <View style={styles.card}>
             <Text style={styles.pickerLabel}>Short Break</Text>
-            <DurationPicker options={SHORT_BREAK_OPTIONS} selected={shortBreakMins} onSelect={setShortBreakMins} />
+            <DurationPicker
+              options={SHORT_BREAK_OPTIONS}
+              selected={shortBreakMins}
+              onSelect={setShortBreakMins}
+              isPremium={isPremium}
+              onUpgrade={() => setPaywallVisible(true)}
+            />
           </View>
 
           <View style={styles.card}>
             <Text style={styles.pickerLabel}>Long Break</Text>
-            <DurationPicker options={LONG_BREAK_OPTIONS} selected={longBreakMins} onSelect={setLongBreakMins} />
+            <DurationPicker
+              options={LONG_BREAK_OPTIONS}
+              selected={longBreakMins}
+              onSelect={setLongBreakMins}
+              isPremium={isPremium}
+              onUpgrade={() => setPaywallVisible(true)}
+            />
           </View>
         </View>
 
@@ -262,7 +362,6 @@ export default function SettingsScreen() {
             />
             <View style={styles.divider} />
 
-            {/* Daily reminder row — always shown but dimmed when notifications are off */}
             <View style={[!notificationsEnabled && styles.disabledSection]}>
               <ToggleRow
                 title="Daily reminder"
@@ -271,7 +370,6 @@ export default function SettingsScreen() {
                 onChange={notificationsEnabled ? handleToggleReminder : () => {}}
               />
 
-              {/* Reminder time picker — only shown when reminder is active */}
               {reminderEnabled && notificationsEnabled && (
                 <View style={styles.reminderTimeWrap}>
                   <Text style={styles.reminderTimeLabel}>Remind me at</Text>
@@ -299,7 +397,16 @@ export default function SettingsScreen() {
           <Text style={styles.aboutText}>FocusBlock v1.0.0</Text>
           <Text style={styles.aboutSub}>Built for deep work</Text>
         </View>
+
+        {/* Dev-only: reset premium */}
+        {__DEV__ && (
+          <Pressable style={styles.devResetBtn} onPress={handleDevResetPremium}>
+            <Text style={styles.devResetText}>Reset Premium (DEV)</Text>
+          </Pressable>
+        )}
       </ScrollView>
+
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -344,10 +451,10 @@ const styles = StyleSheet.create({
 
   // Duration chips
   pickerLabel: { fontSize: 14, color: COLORS.textPrimary, fontWeight: '400', marginTop: 14 },
-  durationPicker: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 10 },
+  durationPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 10 },
   chip: {
-    flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 10,
     backgroundColor: COLORS.surfaceHighlight,
     alignItems: 'center',
@@ -357,8 +464,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(232,168,124,0.4)',
   },
+  chipCustom: {
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.2)',
+    borderStyle: 'dashed',
+  },
   chipText: { fontSize: 12, color: COLORS.textMuted, fontWeight: '400' },
   chipTextActive: { color: COLORS.accent, fontWeight: '600' },
+  chipCustomText: { color: COLORS.accent },
+
+  // Custom duration input
+  customInputRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  customInput: {
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceBorder,
+    backgroundColor: COLORS.surfaceHighlight,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: COLORS.textPrimary,
+  },
+  customInputError: {
+    borderColor: 'rgba(220,80,80,0.6)',
+  },
+  customInputBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(232,168,124,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.4)',
+  },
+  customInputBtnText: {
+    fontSize: 13,
+    color: COLORS.accent,
+    fontWeight: '600',
+  },
 
   // Reminder time picker
   disabledSection: { opacity: 0.38, pointerEvents: 'none' },
@@ -399,4 +547,21 @@ const styles = StyleSheet.create({
   aboutWrap: { alignItems: 'center', paddingTop: 8 },
   aboutText: { fontSize: 13, color: COLORS.textMuted },
   aboutSub: { fontSize: 12, color: COLORS.textDim, marginTop: 2 },
+
+  // Dev toggle
+  devResetBtn: {
+    marginTop: 20,
+    alignSelf: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(220,80,80,0.3)',
+    backgroundColor: 'rgba(220,80,80,0.07)',
+  },
+  devResetText: {
+    fontSize: 12,
+    color: 'rgba(220,80,80,0.7)',
+    fontWeight: '500',
+  },
 });
