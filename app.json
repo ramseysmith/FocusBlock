@@ -29,7 +29,16 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#E8A87C",
+          "sounds": [],
+          "androidMode": "default"
+        }
+      ]
     ]
   }
 }

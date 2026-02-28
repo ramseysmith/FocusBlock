@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
@@ -15,6 +17,11 @@ import { AMBIENT_SOUNDS, QUOTES } from '../../constants/data';
 import { useTimerSettings } from '../../context/TimerSettings';
 import { useAudioMixer, type SoundId } from '../../context/AudioMixer';
 import { useStatsStore } from '../../context/StatsStore';
+import {
+  scheduleTimerNotification,
+  cancelNotification,
+  dismissDeliveredNotifications,
+} from '../../lib/notifications';
 
 // One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -42,13 +49,18 @@ function formatTime(seconds: number) {
 }
 
 export default function TimerScreen() {
-  const { focusMins, shortBreakMins, longBreakMins, autoStart, keepAwakeEnabled } =
-    useTimerSettings();
+  const {
+    focusMins, shortBreakMins, longBreakMins,
+    autoStart, keepAwakeEnabled, notificationsEnabled,
+  } = useTimerSettings();
   const { soundStates } = useAudioMixer();
   const { recordSession } = useStatsStore();
-  // Stable ref so the narrow-deps completion effect always calls the latest recorder
+  // Stable refs so narrow-dep effects always call the latest versions
   const recordSessionRef = useRef(recordSession);
   recordSessionRef.current = recordSession;
+  const notifIdRef = useRef<string | null>(null);
+  const isRunningRef = useRef(false);
+  const backgroundedAtRef = useRef<number | null>(null);
 
   // Derive effective mode durations from settings
   const modes = useMemo(
@@ -85,17 +97,42 @@ export default function TimerScreen() {
     return () => clearTimeout(id);
   }, [isRunning, timeLeft]);
 
+  // Keep isRunningRef in sync for use in AppState handler (avoids stale closure)
+  useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
+
+  // ── AppState: correct timer drift after backgrounding ─────────────────────
+  useEffect(() => {
+    const handleAppState = (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') {
+        if (isRunningRef.current) {
+          backgroundedAtRef.current = Date.now();
+        }
+      } else if (next === 'active' && backgroundedAtRef.current !== null) {
+        const elapsedMs = Date.now() - backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        if (isRunningRef.current) {
+          const elapsedSec = Math.floor(elapsedMs / 1000);
+          setTimeLeft((t) => Math.max(0, t - elapsedSec));
+        }
+      }
+    };
+    const sub = AppState.addEventListener('change', handleAppState);
+    return () => sub.remove();
+  }, []);
+
   // ── Session completion handler ──────────────────────────────────────────────
   useEffect(() => {
     if (timeLeft !== 0 || !isRunning) return;
 
     setIsRunning(false);
+    // Notification already fired from OS; dismiss it from tray since we're in-app
+    dismissDeliveredNotifications();
+    notifIdRef.current = null;
 
     const isFocus = modeIdx === 0;
     const newFocusSessions = isFocus ? focusSessions + 1 : focusSessions;
     if (isFocus) {
       setFocusSessions(newFocusSessions);
-      // Persist to AsyncStorage — duration captured from closure at completion time
       recordSessionRef.current(Math.round(modes[modeIdx].duration / 60));
     }
 
@@ -110,16 +147,27 @@ export default function TimerScreen() {
 
     return () => clearTimeout(timer);
   }, [timeLeft, isRunning]); // eslint-disable-line react-hooks/exhaustive-deps
-  // ^ intentionally narrow deps: we snapshot modeIdx/focusSessions/modes/autoStart at completion time
+  // ^ intentionally narrow deps: snapshot modeIdx/focusSessions/modes/autoStart at completion
 
   // ── Controls ────────────────────────────────────────────────────────────────
+
+  /** Cancel any outstanding timer notification and clear the ref. */
+  const clearTimerNotif = useCallback(() => {
+    if (notifIdRef.current) {
+      cancelNotification(notifIdRef.current);
+      notifIdRef.current = null;
+    }
+  }, []);
+
   const selectMode = (idx: ModeIndex) => {
+    clearTimerNotif();
     setModeIdx(idx);
     setTimeLeft(modes[idx].duration);
     setIsRunning(false);
   };
 
   const resetTimer = () => {
+    clearTimerNotif();
     setTimeLeft(mode.duration);
     setIsRunning(false);
   };
@@ -128,6 +176,29 @@ export default function TimerScreen() {
     const next = nextModeIndex(modeIdx, focusSessions);
     selectMode(next);
   };
+
+  /**
+   * Play/pause toggle.
+   * On play: schedule a timer notification for the remaining seconds.
+   * On pause: cancel it.
+   */
+  const handlePlayPause = useCallback(() => {
+    if (isRunning) {
+      clearTimerNotif();
+      setIsRunning(false);
+    } else {
+      setIsRunning(true);
+      if (notificationsEnabled && timeLeft > 0) {
+        scheduleTimerNotification({
+          isFocus: modeIdx === 0,
+          durationSeconds: timeLeft,
+          focusSessionsCompleted: focusSessions,
+        }).then((id) => {
+          notifIdRef.current = id;
+        });
+      }
+    }
+  }, [isRunning, notificationsEnabled, modeIdx, timeLeft, focusSessions, clearTimerNotif]);
 
   const activeSoundIds = AMBIENT_SOUNDS
     .filter((s) => soundStates[s.id as SoundId]?.isPlaying)
@@ -219,7 +290,7 @@ export default function TimerScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => setIsRunning((r) => !r)}
+            onPress={handlePlayPause}
             style={[styles.playBtn, { backgroundColor: mode.color, shadowColor: mode.color }]}
           >
             <Text style={styles.playBtnIcon}>{isRunning ? '⏸' : '▶'}</Text>

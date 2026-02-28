@@ -1,11 +1,18 @@
 import React, { createContext, useContext, useState } from 'react';
 
 interface Settings {
+  // Timer durations
   focusMins: number;
   shortBreakMins: number;
   longBreakMins: number;
+  // Behaviour
   autoStart: boolean;
   keepAwakeEnabled: boolean;
+  // Notifications
+  notificationsEnabled: boolean;
+  reminderEnabled: boolean;
+  reminderHour: number;
+  reminderMinute: number;
 }
 
 interface SettingsContextValue extends Settings {
@@ -14,6 +21,10 @@ interface SettingsContextValue extends Settings {
   setLongBreakMins: (m: number) => void;
   setAutoStart: (v: boolean) => void;
   setKeepAwakeEnabled: (v: boolean) => void;
+  setNotificationsEnabled: (v: boolean) => void;
+  setReminderEnabled: (v: boolean) => void;
+  setReminderHour: (h: number) => void;
+  setReminderMinute: (m: number) => void;
 }
 
 const TimerSettingsContext = createContext<SettingsContextValue>({
@@ -22,11 +33,19 @@ const TimerSettingsContext = createContext<SettingsContextValue>({
   longBreakMins: 15,
   autoStart: false,
   keepAwakeEnabled: true,
+  notificationsEnabled: true,
+  reminderEnabled: false,
+  reminderHour: 9,
+  reminderMinute: 0,
   setFocusMins: () => {},
   setShortBreakMins: () => {},
   setLongBreakMins: () => {},
   setAutoStart: () => {},
   setKeepAwakeEnabled: () => {},
+  setNotificationsEnabled: () => {},
+  setReminderEnabled: () => {},
+  setReminderHour: () => {},
+  setReminderMinute: () => {},
 });
 
 export function TimerSettingsProvider({ children }: { children: React.ReactNode }) {
@@ -35,6 +54,10 @@ export function TimerSettingsProvider({ children }: { children: React.ReactNode 
   const [longBreakMins, setLongBreakMins] = useState(15);
   const [autoStart, setAutoStart] = useState(false);
   const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderHour, setReminderHour] = useState(9);
+  const [reminderMinute, setReminderMinute] = useState(0);
 
   return (
     <TimerSettingsContext.Provider
@@ -44,11 +67,19 @@ export function TimerSettingsProvider({ children }: { children: React.ReactNode 
         longBreakMins,
         autoStart,
         keepAwakeEnabled,
+        notificationsEnabled,
+        reminderEnabled,
+        reminderHour,
+        reminderMinute,
         setFocusMins,
         setShortBreakMins,
         setLongBreakMins,
         setAutoStart,
         setKeepAwakeEnabled,
+        setNotificationsEnabled,
+        setReminderEnabled,
+        setReminderHour,
+        setReminderMinute,
       }}
     >
       {children}
