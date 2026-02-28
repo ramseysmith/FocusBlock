@@ -5,83 +5,139 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import { AMBIENT_SOUNDS, QUICK_MIXES } from '../../constants/data';
+import { useAudioMixer, type SoundId } from '../../context/AudioMixer';
+import { VolumeSlider } from '../../components/VolumeSlider';
 
-// Audio playback via expo-av will be wired here.
-// import { Audio } from 'expo-av';
+// ── Quick mix button ──────────────────────────────────────────────────────────
 
-type SoundState = {
-  active: boolean;
-  volume: number; // 0–100
-};
+type Mix = (typeof QUICK_MIXES)[number];
 
-function SoundChip({
-  sound,
-  state,
-  onToggle,
-  onVolume,
+function MixButton({
+  mix,
+  isActive,
+  onPress,
 }: {
-  sound: (typeof AMBIENT_SOUNDS)[number];
-  state: SoundState;
-  onToggle: () => void;
-  onVolume: (v: number) => void;
+  mix: Mix;
+  isActive: boolean;
+  onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onToggle} style={styles.chipContainer}>
-      <View style={[styles.chipIcon, state.active && styles.chipIconActive]}>
-        <Text style={styles.chipEmoji}>{sound.emoji}</Text>
-      </View>
-      <Text style={[styles.chipLabel, state.active && styles.chipLabelActive]}>
-        {sound.label}
+    <Pressable
+      onPress={onPress}
+      style={[styles.mixBtn, isActive && styles.mixBtnActive]}
+    >
+      <Text style={[styles.mixBtnText, isActive && styles.mixBtnTextActive]}>
+        {mix.label}
       </Text>
-      {state.active && (
-        <View style={styles.chipVolRow}>
-          {[1, 2, 3, 4, 5].map((dot) => (
-            <Pressable
-              key={dot}
-              onPress={() => onVolume(dot * 20)}
-              style={[
-                styles.volDot,
-                state.volume >= dot * 20 && styles.volDotActive,
-              ]}
-            />
-          ))}
-        </View>
-      )}
     </Pressable>
   );
 }
 
-export default function SoundsScreen() {
-  const [sounds, setSounds] = useState<Record<string, SoundState>>(() =>
-    Object.fromEntries(AMBIENT_SOUNDS.map((s) => [s.id, { active: false, volume: 30 }]))
+// ── Individual sound row ──────────────────────────────────────────────────────
+
+function SoundRow({
+  sound,
+  isPlaying,
+  volume,
+  onToggle,
+  onVolume,
+}: {
+  sound: (typeof AMBIENT_SOUNDS)[number];
+  isPlaying: boolean;
+  volume: number;
+  onToggle: () => void;
+  onVolume: (v: number) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const handleToggle = async () => {
+    setLoading(true);
+    await onToggle();
+    setLoading(false);
+  };
+
+  return (
+    <View style={[styles.soundRow, isPlaying && styles.soundRowActive]}>
+      {/* Left: emoji + labels */}
+      <View style={styles.soundLeft}>
+        <View style={[styles.soundIcon, isPlaying && styles.soundIconActive]}>
+          <Text style={styles.soundEmoji}>{sound.emoji}</Text>
+        </View>
+        <View>
+          <Text style={[styles.soundName, isPlaying && styles.soundNameActive]}>
+            {sound.label}
+          </Text>
+          {isPlaying && (
+            <Text style={[styles.soundSub, { color: COLORS.accent + 'aa' }]}>
+              {Math.round(volume * 100)}%
+            </Text>
+          )}
+        </View>
+      </View>
+
+      {/* Right: toggle */}
+      <Pressable
+        onPress={handleToggle}
+        style={[styles.toggleBtn, isPlaying && styles.toggleBtnActive]}
+        hitSlop={12}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={isPlaying ? COLORS.bgDark : COLORS.textMuted} />
+        ) : (
+          <View
+            style={[
+              styles.toggleDot,
+              isPlaying && styles.toggleDotActive,
+            ]}
+          />
+        )}
+      </Pressable>
+
+      {/* Volume slider — only when playing */}
+      {isPlaying && (
+        <View style={styles.sliderWrap}>
+          <VolumeSlider
+            value={volume}
+            onChange={onVolume}
+            color={COLORS.accent}
+          />
+        </View>
+      )}
+    </View>
   );
-  const [masterVolume, setMasterVolume] = useState(50);
+}
 
-  const activeSounds = AMBIENT_SOUNDS.filter((s) => sounds[s.id]?.active);
+// ── Main screen ───────────────────────────────────────────────────────────────
 
-  const toggleSound = (id: string) => {
-    setSounds((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], active: !prev[id].active },
-    }));
+export default function SoundsScreen() {
+  const { soundStates, toggleSound, setVolume, applyMix, stopAll } = useAudioMixer();
+
+  const activeSounds = AMBIENT_SOUNDS.filter((s) => soundStates[s.id as SoundId]?.isPlaying);
+
+  /** Check if a quick mix is currently the active set (ignores volume) */
+  const isMixActive = (mix: Mix) => {
+    const mixIds = mix.sounds as readonly string[];
+    return (
+      mixIds.length === activeSounds.length &&
+      mixIds.every((id) => soundStates[id as SoundId]?.isPlaying)
+    );
   };
 
-  const setVolume = (id: string, v: number) => {
-    setSounds((prev) => ({ ...prev, [id]: { ...prev[id], volume: v } }));
-  };
+  const [applyingMix, setApplyingMix] = useState<string | null>(null);
 
-  const applyMix = (soundIds: readonly string[]) => {
-    setSounds((prev) => {
-      const next = { ...prev };
-      AMBIENT_SOUNDS.forEach((s) => {
-        next[s.id] = { ...next[s.id], active: soundIds.includes(s.id) };
-      });
-      return next;
-    });
+  const handleApplyMix = async (mix: Mix) => {
+    if (isMixActive(mix)) {
+      await stopAll();
+      return;
+    }
+    setApplyingMix(mix.label);
+    await applyMix(mix.sounds);
+    setApplyingMix(null);
   };
 
   return (
@@ -95,80 +151,88 @@ export default function SoundsScreen() {
         <View style={styles.header}>
           <Text style={styles.screenTitle}>Ambient Sounds</Text>
           <Text style={styles.screenSub}>
-            Mix sounds to create your perfect focus environment
+            Layer sounds to build your focus environment
           </Text>
-        </View>
-
-        {/* Sound grid */}
-        <View style={styles.grid}>
-          {AMBIENT_SOUNDS.map((sound) => (
-            <SoundChip
-              key={sound.id}
-              sound={sound}
-              state={sounds[sound.id]}
-              onToggle={() => toggleSound(sound.id)}
-              onVolume={(v) => setVolume(sound.id, v)}
-            />
-          ))}
         </View>
 
         {/* Quick mixes */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Mixes</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Quick Mixes</Text>
+            {activeSounds.length > 0 && (
+              <Pressable onPress={stopAll} hitSlop={8}>
+                <Text style={styles.stopAllText}>Stop all</Text>
+              </Pressable>
+            )}
+          </View>
           <View style={styles.mixRow}>
             {QUICK_MIXES.map((mix) => (
-              <Pressable
+              <MixButton
                 key={mix.label}
-                onPress={() => applyMix(mix.sounds)}
-                style={styles.mixBtn}
-              >
-                <Text style={styles.mixBtnText}>{mix.label}</Text>
-              </Pressable>
+                mix={mix}
+                isActive={isMixActive(mix)}
+                onPress={() => handleApplyMix(mix)}
+              />
             ))}
           </View>
         </View>
 
-        {/* Master volume */}
-        <View style={styles.masterVolCard}>
-          <View style={styles.masterVolHeader}>
-            <Text style={styles.masterVolLabel}>Master Volume</Text>
-            <Text style={styles.masterVolCount}>
-              {activeSounds.length} active
-            </Text>
+        {/* Sounds list */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Sounds</Text>
+            {activeSounds.length > 0 && (
+              <Text style={styles.activeCount}>
+                {activeSounds.length} playing
+              </Text>
+            )}
           </View>
-          <View style={styles.masterSliderRow}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((step) => (
-              <Pressable
-                key={step}
-                onPress={() => setMasterVolume(step * 10)}
-                style={[
-                  styles.masterDot,
-                  masterVolume >= step * 10 && styles.masterDotActive,
-                ]}
-              />
-            ))}
+
+          <View style={styles.soundList}>
+            {AMBIENT_SOUNDS.map((sound) => {
+              const state = soundStates[sound.id as SoundId];
+              return (
+                <SoundRow
+                  key={sound.id}
+                  sound={sound}
+                  isPlaying={state?.isPlaying ?? false}
+                  volume={state?.volume ?? 0.7}
+                  onToggle={() => toggleSound(sound.id as SoundId)}
+                  onVolume={(v) => setVolume(sound.id as SoundId, v)}
+                />
+              );
+            })}
           </View>
+        </View>
+
+        {/* Tip */}
+        <View style={styles.tip}>
+          <Text style={styles.tipText}>
+            💡  Replace the placeholder audio files in{' '}
+            <Text style={styles.tipCode}>assets/sounds/</Text> with royalty-free
+            loops for a real experience.
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.bgDark,
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   container: {
-    paddingHorizontal: 24,
-    paddingBottom: 32,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
   },
   header: {
     paddingTop: 16,
-    paddingBottom: 24,
+    paddingBottom: 20,
   },
   screenTitle: {
     fontSize: 22,
@@ -181,120 +245,167 @@ const styles = StyleSheet.create({
     color: COLORS.textTiny,
     lineHeight: 18,
   },
-  grid: {
+
+  // ── Sections
+  section: { marginBottom: 28 },
+  sectionHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 20,
     justifyContent: 'space-between',
-    marginBottom: 32,
-  },
-  chipContainer: {
-    width: '30%',
     alignItems: 'center',
-    gap: 6,
-  },
-  chipIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1.5,
-    borderColor: COLORS.surfaceHighlight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipIconActive: {
-    backgroundColor: 'rgba(232,168,124,0.15)',
-    borderColor: 'rgba(232,168,124,0.4)',
-  },
-  chipEmoji: {
-    fontSize: 28,
-  },
-  chipLabel: {
-    fontSize: 11,
-    color: COLORS.textMuted,
-    fontWeight: '400',
-    letterSpacing: 0.2,
-  },
-  chipLabelActive: {
-    color: COLORS.accent,
-    fontWeight: '500',
-  },
-  chipVolRow: {
-    flexDirection: 'row',
-    gap: 3,
-    marginTop: 2,
-  },
-  volDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.surfaceHighlight,
-  },
-  volDotActive: {
-    backgroundColor: COLORS.accent,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: COLORS.textMuted,
-    letterSpacing: 0.4,
     marginBottom: 12,
   },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  activeCount: {
+    fontSize: 12,
+    color: COLORS.accent,
+  },
+  stopAllText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+  },
+
+  // ── Quick mixes
   mixRow: {
     flexDirection: 'row',
     gap: 8,
   },
   mixBtn: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.surfaceBorder,
     backgroundColor: COLORS.surface,
     alignItems: 'center',
   },
+  mixBtnActive: {
+    backgroundColor: 'rgba(232,168,124,0.12)',
+    borderColor: 'rgba(232,168,124,0.35)',
+  },
   mixBtnText: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
-  masterVolCard: {
-    padding: 20,
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLORS.surfaceBorder,
-  },
-  masterVolHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  masterVolLabel: {
-    fontSize: 13,
+    fontSize: 11,
     color: COLORS.textMuted,
+    textAlign: 'center',
+    lineHeight: 16,
   },
-  masterVolCount: {
-    fontSize: 13,
+  mixBtnTextActive: {
     color: COLORS.accent,
+    fontWeight: '500',
   },
-  masterSliderRow: {
+
+  // ── Sound list
+  soundList: {
+    gap: 2,
+  },
+  soundRow: {
     flexDirection: 'row',
-    gap: 6,
     alignItems: 'center',
+    flexWrap: 'wrap',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: 'transparent',
+    gap: 0,
   },
-  masterDot: {
+  soundRowActive: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 2,
+  },
+  soundLeft: {
     flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.surfaceHighlight,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
-  masterDotActive: {
+  soundIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: COLORS.surfaceHighlight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  soundIconActive: {
+    backgroundColor: 'rgba(232,168,124,0.12)',
+    borderColor: 'rgba(232,168,124,0.3)',
+  },
+  soundEmoji: {
+    fontSize: 22,
+  },
+  soundName: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    fontWeight: '400',
+  },
+  soundNameActive: {
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  soundSub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+
+  // ── Toggle button
+  toggleBtn: {
+    width: 36,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: COLORS.surfaceHighlight,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleBtnActive: {
     backgroundColor: COLORS.accent,
+    borderColor: COLORS.accent,
+  },
+  toggleDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.textMuted,
+  },
+  toggleDotActive: {
+    backgroundColor: COLORS.bgDark,
+  },
+
+  // ── Volume slider (spans full row when active)
+  sliderWrap: {
+    width: '100%',
+    paddingLeft: 58,  // align with text after icon (44px icon + 14px gap)
+    paddingRight: 4,
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+
+  // ── Tip
+  tip: {
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  tipText: {
+    fontSize: 12,
+    color: COLORS.textDim,
+    lineHeight: 18,
+  },
+  tipCode: {
+    color: COLORS.textMuted,
+    fontFamily: 'monospace',
   },
 });

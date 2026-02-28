@@ -13,6 +13,7 @@ import { CircularTimer } from '../../components/CircularTimer';
 import { COLORS } from '../../constants/theme';
 import { AMBIENT_SOUNDS, QUOTES } from '../../constants/data';
 import { useTimerSettings } from '../../context/TimerSettings';
+import { useAudioMixer, type SoundId } from '../../context/AudioMixer';
 
 // One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -42,6 +43,7 @@ function formatTime(seconds: number) {
 export default function TimerScreen() {
   const { focusMins, shortBreakMins, longBreakMins, autoStart, keepAwakeEnabled } =
     useTimerSettings();
+  const { soundStates } = useAudioMixer();
 
   // Derive effective mode durations from settings
   const modes = useMemo(
@@ -57,7 +59,6 @@ export default function TimerScreen() {
   const [timeLeft, setTimeLeft] = useState(modes[0].duration);
   const [isRunning, setIsRunning] = useState(false);
   const [focusSessions, setFocusSessions] = useState(0);
-  const [activeSounds] = useState<Record<string, boolean>>({});
 
   const mode = modes[modeIdx];
   const progress = 1 - timeLeft / mode.duration;
@@ -119,7 +120,9 @@ export default function TimerScreen() {
     selectMode(next);
   };
 
-  const activeSoundIds = Object.keys(activeSounds);
+  const activeSoundIds = AMBIENT_SOUNDS
+    .filter((s) => soundStates[s.id as SoundId]?.isPlaying)
+    .map((s) => s.id);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
