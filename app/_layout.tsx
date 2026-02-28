@@ -6,11 +6,15 @@ import { TimerSettingsProvider } from '../context/TimerSettings';
 import { AudioMixerProvider } from '../context/AudioMixer';
 import { StatsProvider } from '../context/StatsStore';
 import { setupAndroidChannels } from '../lib/notifications';
+import { AdManager } from '../src/services/ads/AdManager';
 
 export default function RootLayout() {
   useEffect(() => {
     // Set up Android notification channels (no-op on iOS)
     setupAndroidChannels();
+
+    // Initialize ad SDK (falls back to mock on error)
+    AdManager.initialize();
 
     // Handle taps on delivered notifications — bring app to foreground naturally
     const sub = Notifications.addNotificationResponseReceivedListener(() => {
