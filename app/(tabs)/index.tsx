@@ -14,6 +14,7 @@ import { COLORS } from '../../constants/theme';
 import { AMBIENT_SOUNDS, QUOTES } from '../../constants/data';
 import { useTimerSettings } from '../../context/TimerSettings';
 import { useAudioMixer, type SoundId } from '../../context/AudioMixer';
+import { useStatsStore } from '../../context/StatsStore';
 
 // One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -44,6 +45,10 @@ export default function TimerScreen() {
   const { focusMins, shortBreakMins, longBreakMins, autoStart, keepAwakeEnabled } =
     useTimerSettings();
   const { soundStates } = useAudioMixer();
+  const { recordSession } = useStatsStore();
+  // Stable ref so the narrow-deps completion effect always calls the latest recorder
+  const recordSessionRef = useRef(recordSession);
+  recordSessionRef.current = recordSession;
 
   // Derive effective mode durations from settings
   const modes = useMemo(
@@ -88,7 +93,11 @@ export default function TimerScreen() {
 
     const isFocus = modeIdx === 0;
     const newFocusSessions = isFocus ? focusSessions + 1 : focusSessions;
-    if (isFocus) setFocusSessions(newFocusSessions);
+    if (isFocus) {
+      setFocusSessions(newFocusSessions);
+      // Persist to AsyncStorage — duration captured from closure at completion time
+      recordSessionRef.current(Math.round(modes[modeIdx].duration / 60));
+    }
 
     const next = nextModeIndex(modeIdx, newFocusSessions);
     const delay = autoStart ? 1500 : 0;

@@ -1,43 +1,193 @@
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Rect, G, Text as SvgText, Line, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { COLORS } from '../../constants/theme';
-import { TIMER_MODES } from '../../constants/data';
+import { useStatsStore } from '../../context/StatsStore';
+import { getWeekData, formatMinutes, type WeekDay } from '../../lib/storage';
 
-const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-// Placeholder heights — replace with real AsyncStorage data
-const WEEK_HEIGHTS = [65, 80, 45, 90, 70, 30, 55];
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const SCREEN_W = Dimensions.get('window').width;
+const CHART_H = 130;     // height of the bar area
+const LABEL_H = 22;      // height below bars for day labels
+const MIN_BAR_H = 4;     // minimum visible height for non-zero bars
 
 const ACHIEVEMENTS = [
-  { icon: '🎯', title: 'First Focus',  desc: 'Complete your first session',      threshold: 1,  stat: 'sessions' },
-  { icon: '🔥', title: 'On Fire',      desc: '3 day streak',                     threshold: 3,  stat: 'streak' },
-  { icon: '⚡', title: 'Power Hour',   desc: 'Focus for 60+ minutes in a day',   threshold: 60, stat: 'minutes' },
-  { icon: '🏆', title: 'Deep Worker',  desc: 'Complete 10 sessions',             threshold: 10, stat: 'sessions' },
+  { icon: '🎯', title: 'First Focus',  desc: 'Complete your first session',      check: (s: number, _m: number, _str: number) => s >= 1 },
+  { icon: '🔥', title: 'On Fire',      desc: '3-day streak',                     check: (_s: number, _m: number, str: number) => str >= 3 },
+  { icon: '⚡', title: 'Power Hour',   desc: 'Accumulate 60+ focus minutes',     check: (_s: number, m: number, _str: number) => m >= 60 },
+  { icon: '🏆', title: 'Deep Worker',  desc: 'Complete 10 sessions',             check: (s: number, _m: number, _str: number) => s >= 10 },
+  { icon: '🌙', title: 'Night Owl',    desc: 'Complete 25 sessions',             check: (s: number, _m: number, _str: number) => s >= 25 },
+  { icon: '💎', title: 'Diamond Mind', desc: 'Maintain a 7-day streak',          check: (_s: number, _m: number, str: number) => str >= 7 },
 ] as const;
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function StatCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  accent?: boolean;
+}) {
   return (
-    <View style={styles.statCard}>
-      <Text style={styles.statValue}>{value}</Text>
+    <View style={[styles.statCard, accent && styles.statCardAccent]}>
+      <Text style={[styles.statValue, accent && styles.statValueAccent]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-      {sub && <Text style={styles.statSub}>{sub}</Text>}
     </View>
   );
 }
 
+// ── Weekly bar chart ──────────────────────────────────────────────────────────
+
+function WeekChart({ weekData }: { weekData: WeekDay[] }) {
+  const [chartWidth, setChartWidth] = useState(0);
+
+  const maxMins = Math.max(...weekData.map((d) => d.minutes), 1);
+  const numBars = weekData.length;
+
+  const getBarH = (mins: number) =>
+    mins > 0 ? Math.max((mins / maxMins) * CHART_H, MIN_BAR_H) : 0;
+
+  // Week range label: "Feb 24 – Mar 2"
+  const rangeLabel = (() => {
+    const first = weekData[0];
+    const last = weekData[6];
+    const fmt = (key: string) => {
+      const d = new Date(key + 'T00:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+    return `${fmt(first.key)} – ${fmt(last.key)}`;
+  })();
+
+  const svgH = CHART_H + LABEL_H;
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardTitle}>This Week</Text>
+        <Text style={styles.cardSub}>{rangeLabel}</Text>
+      </View>
+
+      <View
+        onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}
+        style={styles.chartArea}
+      >
+        {chartWidth > 0 && (
+          <Svg width={chartWidth} height={svgH}>
+            <Defs>
+              <LinearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={COLORS.accent} stopOpacity="1" />
+                <Stop offset="1" stopColor={COLORS.accent} stopOpacity="0.55" />
+              </LinearGradient>
+              <LinearGradient id="pastGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="rgba(255,255,255,0.22)" stopOpacity="1" />
+                <Stop offset="1" stopColor="rgba(255,255,255,0.08)" stopOpacity="1" />
+              </LinearGradient>
+            </Defs>
+
+            {weekData.map((day, i) => {
+              const BAR_GAP = 6;
+              const BAR_W = (chartWidth - BAR_GAP * (numBars - 1)) / numBars;
+              const x = i * (BAR_W + BAR_GAP);
+              const barH = getBarH(day.minutes);
+              const barY = CHART_H - barH;
+              const isPast = !day.isToday && !day.isFuture && day.minutes === 0;
+
+              return (
+                <G key={day.key}>
+                  {/* Track (background) */}
+                  <Rect
+                    x={x}
+                    y={0}
+                    width={BAR_W}
+                    height={CHART_H}
+                    rx={6}
+                    fill="rgba(255,255,255,0.04)"
+                  />
+
+                  {/* Filled bar */}
+                  {barH > 0 && (
+                    <Rect
+                      x={x}
+                      y={barY}
+                      width={BAR_W}
+                      height={barH}
+                      rx={6}
+                      fill={day.isToday ? 'url(#barGrad)' : 'url(#pastGrad)'}
+                    />
+                  )}
+
+                  {/* Minutes label above bar */}
+                  {day.minutes > 0 && (
+                    <SvgText
+                      x={x + BAR_W / 2}
+                      y={barY - 5}
+                      textAnchor="middle"
+                      fill={day.isToday ? COLORS.accent : 'rgba(255,255,255,0.4)'}
+                      fontSize={9}
+                      fontWeight="500"
+                    >
+                      {day.minutes}
+                    </SvgText>
+                  )}
+
+                  {/* Day label */}
+                  <SvgText
+                    x={x + BAR_W / 2}
+                    y={CHART_H + LABEL_H - 3}
+                    textAnchor="middle"
+                    fill={day.isToday ? COLORS.accent : 'rgba(255,255,255,0.3)'}
+                    fontSize={10}
+                    fontWeight={day.isToday ? '600' : '400'}
+                  >
+                    {day.label}
+                  </SvgText>
+                </G>
+              );
+            })}
+
+            {/* Baseline */}
+            <Line
+              x1={0}
+              y1={CHART_H}
+              x2={chartWidth}
+              y2={CHART_H}
+              stroke="rgba(255,255,255,0.07)"
+              strokeWidth={1}
+            />
+          </Svg>
+        )}
+      </View>
+
+      {/* Legend */}
+      <View style={styles.chartLegend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: COLORS.accent }]} />
+          <Text style={styles.legendText}>Today</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: 'rgba(255,255,255,0.22)' }]} />
+          <Text style={styles.legendText}>Past days</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
+
 export default function StatsScreen() {
-  // TODO: load from AsyncStorage
-  const sessions = 0;
-  const minutes = 0;
-  const streak = 3;
+  const { totalSessions, totalMinutes, streak, dailyData, isLoaded } = useStatsStore();
 
-  const todayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+  const weekData = getWeekData(dailyData);
+  const weekMinutes = weekData.reduce((sum, d) => sum + d.minutes, 0);
+  const weekSessions = weekData.reduce((sum, d) => sum + d.sessions, 0);
 
-  const isDone = (stat: string, threshold: number) => {
-    if (stat === 'sessions') return sessions >= threshold;
-    if (stat === 'minutes') return minutes >= threshold;
-    if (stat === 'streak') return streak >= threshold;
-    return false;
-  };
+  const todayData = weekData.find((d) => d.isToday);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -48,65 +198,83 @@ export default function StatsScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Your Focus Stats</Text>
-          <Text style={styles.screenSub}>Track your deep work progress</Text>
+          <Text style={styles.screenTitle}>Focus Stats</Text>
+          <Text style={styles.screenSub}>All-time • {isLoaded ? `${totalSessions} sessions` : '—'}</Text>
         </View>
 
-        {/* Stat cards */}
+        {/* Top stat cards */}
         <View style={styles.statRow}>
-          <StatCard label="Sessions" value={sessions} sub="today" />
-          <StatCard label="Minutes"  value={minutes}  sub="focused" />
-          <StatCard label="Streak"   value={`${streak}🔥`} sub="days" />
+          <StatCard
+            label="Sessions"
+            value={isLoaded ? totalSessions : '—'}
+          />
+          <StatCard
+            label="Focus time"
+            value={isLoaded ? formatMinutes(totalMinutes) : '—'}
+          />
+          <StatCard
+            label="Streak"
+            value={isLoaded ? (streak > 0 ? `${streak} 🔥` : '0') : '—'}
+            accent={streak > 0}
+          />
         </View>
 
-        {/* Weekly chart */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>This Week</Text>
-          <View style={styles.chart}>
-            {WEEK_DAYS.map((day, i) => (
-              <View key={day} style={styles.barGroup}>
-                <View
-                  style={[
-                    styles.bar,
-                    {
-                      height: `${WEEK_HEIGHTS[i]}%`,
-                      backgroundColor:
-                        i === todayIdx
-                          ? TIMER_MODES[0].color + '90'
-                          : COLORS.surfaceHighlight,
-                    },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.barLabel,
-                    i === todayIdx && { color: COLORS.accent },
-                  ]}
-                >
-                  {day}
-                </Text>
-              </View>
-            ))}
+        {/* This-week summary row */}
+        <View style={styles.weekSummaryRow}>
+          <View style={styles.weekSummaryItem}>
+            <Text style={styles.weekSummaryValue}>{weekSessions}</Text>
+            <Text style={styles.weekSummaryLabel}>sessions this week</Text>
           </View>
+          <View style={styles.weekSumDivider} />
+          <View style={styles.weekSummaryItem}>
+            <Text style={styles.weekSummaryValue}>{formatMinutes(weekMinutes)}</Text>
+            <Text style={styles.weekSummaryLabel}>focused this week</Text>
+          </View>
+          {todayData && (
+            <>
+              <View style={styles.weekSumDivider} />
+              <View style={styles.weekSummaryItem}>
+                <Text style={styles.weekSummaryValue}>{todayData.sessions}</Text>
+                <Text style={styles.weekSummaryLabel}>sessions today</Text>
+              </View>
+            </>
+          )}
         </View>
+
+        {/* Weekly bar chart */}
+        <WeekChart weekData={weekData} />
 
         {/* Achievements */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Achievements</Text>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Achievements</Text>
+            <Text style={styles.cardSub}>
+              {ACHIEVEMENTS.filter((a) => a.check(totalSessions, totalMinutes, streak)).length}
+              /{ACHIEVEMENTS.length} unlocked
+            </Text>
+          </View>
           <View style={styles.achievementList}>
             {ACHIEVEMENTS.map((ach) => {
-              const done = isDone(ach.stat, ach.threshold);
+              const unlocked = ach.check(totalSessions, totalMinutes, streak);
               return (
                 <View
                   key={ach.title}
-                  style={[styles.achievement, !done && styles.achievementLocked]}
+                  style={[styles.achievement, !unlocked && styles.achievementLocked]}
                 >
-                  <Text style={styles.achievementIcon}>{ach.icon}</Text>
+                  <View style={[styles.achievementIcon, unlocked && styles.achievementIconUnlocked]}>
+                    <Text style={styles.achievementEmoji}>{ach.icon}</Text>
+                  </View>
                   <View style={styles.achievementText}>
-                    <Text style={styles.achievementTitle}>{ach.title}</Text>
+                    <Text style={[styles.achievementTitle, unlocked && styles.achievementTitleUnlocked]}>
+                      {ach.title}
+                    </Text>
                     <Text style={styles.achievementDesc}>{ach.desc}</Text>
                   </View>
-                  {done && <Text style={styles.achievementCheck}>✓</Text>}
+                  {unlocked && (
+                    <View style={styles.checkBadge}>
+                      <Text style={styles.checkText}>✓</Text>
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -117,133 +285,118 @@ export default function StatsScreen() {
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.bgDark,
-  },
-  scroll: {
-    flex: 1,
-  },
-  container: {
-    paddingHorizontal: 24,
-    paddingBottom: 32,
-  },
-  header: {
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
-  screenTitle: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    marginBottom: 4,
-  },
-  screenSub: {
-    fontSize: 13,
-    color: COLORS.textTiny,
-  },
-  statRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
+  safeArea: { flex: 1, backgroundColor: COLORS.bgDark },
+  scroll: { flex: 1 },
+  container: { paddingHorizontal: 20, paddingBottom: 40 },
+
+  header: { paddingTop: 16, paddingBottom: 20 },
+  screenTitle: { fontSize: 22, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 3 },
+  screenSub: { fontSize: 12, color: COLORS.textTiny },
+
+  // ── Stat cards
+  statRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   statCard: {
     flex: 1,
     backgroundColor: COLORS.surface,
     borderRadius: 16,
     paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: COLORS.surfaceBorder,
   },
-  statValue: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    lineHeight: 34,
+  statCardAccent: {
+    backgroundColor: 'rgba(232,168,124,0.08)',
+    borderColor: 'rgba(232,168,124,0.2)',
   },
+  statValue: { fontSize: 26, fontWeight: '600', color: COLORS.textPrimary, lineHeight: 32 },
+  statValueAccent: { color: COLORS.accent },
   statLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.textMuted,
     marginTop: 4,
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
-  statSub: {
-    fontSize: 10,
-    color: 'rgba(232,168,124,0.6)',
-    marginTop: 2,
+
+  // ── Week summary row
+  weekSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceBorder,
+    paddingVertical: 14,
+    marginBottom: 12,
   },
+  weekSummaryItem: { flex: 1, alignItems: 'center' },
+  weekSummaryValue: { fontSize: 18, fontWeight: '600', color: COLORS.textPrimary },
+  weekSummaryLabel: { fontSize: 10, color: COLORS.textMuted, marginTop: 2 },
+  weekSumDivider: { width: 1, height: 28, backgroundColor: COLORS.surfaceBorder },
+
+  // ── Chart card
   card: {
     backgroundColor: COLORS.surface,
     borderRadius: 16,
-    padding: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     borderWidth: 1,
     borderColor: COLORS.surfaceBorder,
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  cardTitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: COLORS.textMuted,
-    marginBottom: 16,
-    letterSpacing: 0.3,
-  },
-  chart: {
+  cardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    height: 120,
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 18,
   },
-  barGroup: {
-    flex: 1,
-    alignItems: 'center',
-    height: '100%',
-    justifyContent: 'flex-end',
-    gap: 6,
-  },
-  bar: {
-    width: '100%',
-    borderRadius: 6,
-    minHeight: 6,
-  },
-  barLabel: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-  },
-  achievementList: {
-    gap: 12,
-  },
-  achievement: {
+  cardTitle: { fontSize: 13, fontWeight: '500', color: COLORS.textMuted, letterSpacing: 0.3 },
+  cardSub: { fontSize: 11, color: COLORS.textDim },
+  chartArea: { width: '100%' },
+  chartLegend: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    gap: 16,
+    marginTop: 14,
   },
-  achievementLocked: {
-    opacity: 0.35,
-  },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 11, color: COLORS.textDim },
+
+  // ── Achievements
+  achievementList: { gap: 14 },
+  achievement: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  achievementLocked: { opacity: 0.3 },
   achievementIcon: {
-    fontSize: 24,
-    width: 32,
-    textAlign: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: COLORS.surfaceHighlight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  achievementText: {
-    flex: 1,
+  achievementIconUnlocked: {
+    backgroundColor: 'rgba(232,168,124,0.1)',
+    borderColor: 'rgba(232,168,124,0.25)',
   },
-  achievementTitle: {
-    fontSize: 13,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
+  achievementEmoji: { fontSize: 22 },
+  achievementText: { flex: 1 },
+  achievementTitle: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500' },
+  achievementTitleUnlocked: { color: COLORS.textPrimary },
+  achievementDesc: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  checkBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(133,205,202,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  achievementDesc: {
-    fontSize: 11,
-    color: COLORS.textMuted,
-    marginTop: 1,
-  },
-  achievementCheck: {
-    fontSize: 12,
-    color: COLORS.shortBreak,
-  },
+  checkText: { fontSize: 11, color: COLORS.shortBreak, fontWeight: '600' },
 });
