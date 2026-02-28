@@ -7,6 +7,12 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import Animated, {
+  FadeInDown,
+  FadeOutUp,
+  LinearTransition,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 import { AMBIENT_SOUNDS, QUICK_MIXES } from '../../constants/data';
@@ -33,7 +39,10 @@ function MixButton({
 }) {
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress();
+      }}
       disabled={disabled}
       style={[styles.mixBtn, isActive && styles.mixBtnActive, disabled && styles.mixBtnDisabled]}
     >
@@ -92,13 +101,17 @@ function SoundRow({
   const [loading, setLoading] = useState(false);
 
   const handleToggle = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setLoading(true);
     await onToggle();
     setLoading(false);
   };
 
   return (
-    <View style={[styles.soundRow, isPlaying && styles.soundRowActive, isLocked && styles.soundRowLocked]}>
+    <Animated.View
+      layout={LinearTransition.springify().damping(20)}
+      style={[styles.soundRow, isPlaying && styles.soundRowActive, isLocked && styles.soundRowLocked]}
+    >
       {/* Left: emoji + labels */}
       <View style={styles.soundLeft}>
         <View style={[styles.soundIcon, isPlaying && styles.soundIconActive]}>
@@ -155,15 +168,19 @@ function SoundRow({
 
       {/* Volume slider — only when playing (and not locked) */}
       {!isLocked && isPlaying && (
-        <View style={styles.sliderWrap}>
+        <Animated.View
+          style={styles.sliderWrap}
+          entering={FadeInDown.duration(220).springify()}
+          exiting={FadeOutUp.duration(160)}
+        >
           <VolumeSlider
             value={volume}
             onChange={onVolume}
             color={COLORS.accent}
           />
-        </View>
+        </Animated.View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -218,7 +235,10 @@ export default function SoundsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Quick Mixes</Text>
             {activeSounds.length > 0 && isPremium && (
-              <Pressable onPress={stopAll} hitSlop={8}>
+              <Pressable onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                stopAll();
+              }} hitSlop={8}>
                 <Text style={styles.stopAllText}>Stop all</Text>
               </Pressable>
             )}
@@ -253,7 +273,7 @@ export default function SoundsScreen() {
             )}
           </View>
 
-          <View style={styles.soundList}>
+          <Animated.View style={styles.soundList} layout={LinearTransition.springify().damping(20)}>
             {AMBIENT_SOUNDS.map((sound) => {
               const state = soundStates[sound.id as SoundId];
               const locked = isLoaded ? isSoundLocked(sound.id) : false;
@@ -270,7 +290,7 @@ export default function SoundsScreen() {
                 />
               );
             })}
-          </View>
+          </Animated.View>
         </View>
 
         {/* Tip */}

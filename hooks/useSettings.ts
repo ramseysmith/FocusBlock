@@ -14,6 +14,7 @@ export interface AppSettings {
   autoStartBreaks: boolean;           // auto-start break after focus ends
   autoStartFocus: boolean;            // auto-start focus after break ends
   keepAwakeEnabled: boolean;          // prevent screen sleep during sessions
+  hapticPulseEnabled: boolean;        // subtle haptic nudge every 5 min during focus
   // ── Sound ────────────────────────────────────────────────────────────────────
   defaultVolume: number;              // 0.0–1.0, default 0.7
   fadeInDuration: number;             // seconds 0–10, default 0
@@ -34,6 +35,7 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   autoStartBreaks: false,
   autoStartFocus: false,
   keepAwakeEnabled: true,
+  hapticPulseEnabled: false,
   defaultVolume: 0.7,
   fadeInDuration: 0,
   notificationsEnabled: true,

@@ -14,6 +14,7 @@ export interface SettingsContextValue extends AppSettings {
   setAutoStartBreaks: (v: boolean) => void;
   setAutoStartFocus: (v: boolean) => void;
   setKeepAwakeEnabled: (v: boolean) => void;
+  setHapticPulseEnabled: (v: boolean) => void;
   setDefaultVolume: (v: number) => void;
   setFadeInDuration: (v: number) => void;
   setNotificationsEnabled: (v: boolean) => void;
@@ -48,6 +49,7 @@ const DEFAULT_CTX: SettingsContextValue = {
   setAutoStartBreaks: noop,
   setAutoStartFocus: noop,
   setKeepAwakeEnabled: noop,
+  setHapticPulseEnabled: noop,
   setDefaultVolume: noop,
   setFadeInDuration: noop,
   setNotificationsEnabled: noop,
@@ -80,6 +82,7 @@ export function TimerSettingsProvider({ children }: { children: React.ReactNode 
     setAutoStartBreaks:          (v) => set('autoStartBreaks', v),
     setAutoStartFocus:           (v) => set('autoStartFocus', v),
     setKeepAwakeEnabled:         (v) => set('keepAwakeEnabled', v),
+    setHapticPulseEnabled:       (v) => set('hapticPulseEnabled', v),
     setDefaultVolume:            (v) => set('defaultVolume', v),
     setFadeInDuration:           (v) => set('fadeInDuration', v),
     setNotificationsEnabled:     (v) => set('notificationsEnabled', v),

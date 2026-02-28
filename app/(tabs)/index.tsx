@@ -11,6 +11,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { CircularTimer } from '../../components/CircularTimer';
 import { COLORS } from '../../constants/theme';
 import { AMBIENT_SOUNDS, QUOTES } from '../../constants/data';
@@ -61,7 +69,7 @@ export default function TimerScreen() {
     autoStartBreaks, autoStartFocus,
     keepAwakeEnabled, notificationsEnabled,
     sessionCompleteAlert, breakReminderEnabled,
-    sessionsBeforeLongBreak,
+    sessionsBeforeLongBreak, hapticPulseEnabled,
   } = useTimerSettings();
   const { soundStates } = useAudioMixer();
   const { recordSession } = useStatsStore();
@@ -77,6 +85,19 @@ export default function TimerScreen() {
   const isRunningRef = useRef(false);
   const backgroundedAtRef = useRef<number | null>(null);
   const [adTrigger, setAdTrigger] = useState(0);
+
+  // ── Ring animation shared values ────────────────────────────────────────────
+  const ringOpacity = useSharedValue(0);
+  const ringScale = useSharedValue(1);
+  const ringAnimStyle = useAnimatedStyle(() => ({
+    opacity: ringOpacity.value,
+    transform: [{ scale: ringScale.value }],
+  }));
+
+  // Fade ring in on mount
+  useEffect(() => {
+    ringOpacity.value = withTiming(1, { duration: 700 });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive effective mode durations from settings
   const modes = useMemo(
@@ -136,6 +157,15 @@ export default function TimerScreen() {
     return () => sub.remove();
   }, []);
 
+  // ── 5-minute focus pulse ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isRunning || modeIdx !== 0 || !hapticPulseEnabled) return;
+    const id = setInterval(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [isRunning, modeIdx, hapticPulseEnabled]);
+
   // ── Session completion handler ──────────────────────────────────────────────
   useEffect(() => {
     if (timeLeft !== 0 || !isRunning) return;
@@ -145,9 +175,16 @@ export default function TimerScreen() {
     dismissDeliveredNotifications();
     notifIdRef.current = null;
 
+    // Scale pulse on every session completion
+    ringScale.value = withSequence(
+      withSpring(1.05, { damping: 4, stiffness: 200 }),
+      withSpring(1, { damping: 12, stiffness: 120 }),
+    );
+
     const isFocus = modeIdx === 0;
     const newFocusSessions = isFocus ? focusSessions + 1 : focusSessions;
     if (isFocus) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setFocusSessions(newFocusSessions);
       recordSessionRef.current(Math.round(modes[modeIdx].duration / 60));
       onFocusSessionCompleteRef.current().then((shouldShow) => {
@@ -181,6 +218,7 @@ export default function TimerScreen() {
   }, []);
 
   const selectMode = (idx: ModeIndex) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     clearTimerNotif();
     setModeIdx(idx);
     setTimeLeft(modes[idx].duration);
@@ -188,6 +226,7 @@ export default function TimerScreen() {
   };
 
   const resetTimer = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     clearTimerNotif();
     setTimeLeft(mode.duration);
     setIsRunning(false);
@@ -204,6 +243,7 @@ export default function TimerScreen() {
    * On pause: cancel it.
    */
   const handlePlayPause = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (isRunning) {
       clearTimerNotif();
       setIsRunning(false);
@@ -292,7 +332,7 @@ export default function TimerScreen() {
         </View>
 
         {/* Timer ring */}
-        <View style={styles.timerWrap}>
+        <Animated.View style={[styles.timerWrap, ringAnimStyle]}>
           <CircularTimer progress={progress} size={260} strokeWidth={6} color={mode.color}>
             <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
             <Text style={styles.timerLabel}>
@@ -315,7 +355,7 @@ export default function TimerScreen() {
               ))}
             </View>
           </CircularTimer>
-        </View>
+        </Animated.View>
 
         {/* Auto-start indicator */}
         {(modeIdx === 0 ? autoStartBreaks : autoStartFocus) && (

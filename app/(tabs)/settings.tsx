@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   View,
   Text,
@@ -99,7 +100,10 @@ function ToggleRow({
       right={
         <Switch
           value={value}
-          onValueChange={onChange}
+          onValueChange={(v) => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            onChange(v);
+          }}
           trackColor={{ false: COLORS.surfaceHighlight, true: 'rgba(232,168,124,0.5)' }}
           thumbColor={value ? COLORS.accent : 'rgba(255,255,255,0.4)'}
         />
@@ -127,15 +131,24 @@ function Stepper({ value, min, max, step, format, onChange, locked, onUnlock }: 
     return (
       <View style={styles.stepperLocked}>
         <Text style={styles.stepperLockedValue}>{format(value)}</Text>
-        <Pressable style={styles.proBadge} onPress={onUnlock} hitSlop={10}>
+        <Pressable style={styles.proBadge} onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onUnlock?.();
+        }} hitSlop={10}>
           <Text style={styles.proBadgeText}>🔒 Pro</Text>
         </Pressable>
       </View>
     );
   }
 
-  const decrement = () => onChange(Math.max(min, +(value - step).toFixed(2)));
-  const increment = () => onChange(Math.min(max, +(value + step).toFixed(2)));
+  const decrement = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onChange(Math.max(min, +(value - step).toFixed(2)));
+  };
+  const increment = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onChange(Math.min(max, +(value + step).toFixed(2)));
+  };
 
   return (
     <View style={styles.stepper}>
@@ -174,7 +187,10 @@ function LinkRow({
   destructive?: boolean;
 }) {
   return (
-    <Pressable style={styles.row} onPress={onPress}>
+    <Pressable style={styles.row} onPress={() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onPress();
+    }}>
       <View style={styles.rowLabel}>
         <Text style={[styles.rowTitle, destructive && styles.rowTitleDestructive]}>{title}</Text>
         {sub ? <Text style={styles.rowSub}>{sub}</Text> : null}
@@ -224,9 +240,9 @@ export default function SettingsScreen() {
   const {
     // Timer
     focusMins, shortBreakMins, longBreakMins, sessionsBeforeLongBreak,
-    autoStartBreaks, autoStartFocus, keepAwakeEnabled,
+    autoStartBreaks, autoStartFocus, keepAwakeEnabled, hapticPulseEnabled,
     setFocusMins, setShortBreakMins, setLongBreakMins, setSessionsBeforeLongBreak,
-    setAutoStartBreaks, setAutoStartFocus, setKeepAwakeEnabled,
+    setAutoStartBreaks, setAutoStartFocus, setKeepAwakeEnabled, setHapticPulseEnabled,
     // Sound
     defaultVolume, fadeInDuration,
     setDefaultVolume, setFadeInDuration,
@@ -454,6 +470,13 @@ export default function SettingsScreen() {
               value={keepAwakeEnabled}
               onChange={setKeepAwakeEnabled}
             />
+            <Divider />
+            <ToggleRow
+              title="Focus pulse"
+              sub="Subtle haptic nudge every 5 min while focusing"
+              value={hapticPulseEnabled}
+              onChange={setHapticPulseEnabled}
+            />
           </Card>
         </View>
 
@@ -548,7 +571,10 @@ export default function SettingsScreen() {
           )}
 
           {!notificationsEnabled && (
-            <Pressable style={styles.enableNotifsRow} onPress={() => handleToggleNotifications(true)}>
+            <Pressable style={styles.enableNotifsRow} onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              handleToggleNotifications(true);
+            }}>
               <Text style={styles.enableNotifsText}>Enable notifications →</Text>
             </Pressable>
           )}
@@ -595,7 +621,10 @@ export default function SettingsScreen() {
 
         {/* ── Dev-only tools ──────────────────────────────────────────────── */}
         {__DEV__ && (
-          <Pressable style={styles.devResetBtn} onPress={handleDevResetPremium}>
+          <Pressable style={styles.devResetBtn} onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            handleDevResetPremium();
+          }}>
             <Text style={styles.devResetText}>Reset Premium (DEV)</Text>
           </Pressable>
         )}

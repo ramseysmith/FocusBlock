@@ -1,5 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Dimensions, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withDelay,
+  withTiming,
+  withSpring,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Rect, G, Text as SvgText, Line, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { COLORS } from '../../constants/theme';
@@ -230,6 +237,26 @@ export default function StatsScreen() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [paywallVisible, setPaywallVisible] = useState(false);
 
+  // ── Stagger entrance animations ─────────────────────────────────────────────
+  const op0 = useSharedValue(0); const ty0 = useSharedValue(28);
+  const op1 = useSharedValue(0); const ty1 = useSharedValue(28);
+  const op2 = useSharedValue(0); const ty2 = useSharedValue(28);
+  const op3 = useSharedValue(0); const ty3 = useSharedValue(28);
+
+  const cardStyle0 = useAnimatedStyle(() => ({ opacity: op0.value, transform: [{ translateY: ty0.value }] }));
+  const cardStyle1 = useAnimatedStyle(() => ({ opacity: op1.value, transform: [{ translateY: ty1.value }] }));
+  const cardStyle2 = useAnimatedStyle(() => ({ opacity: op2.value, transform: [{ translateY: ty2.value }] }));
+  const cardStyle3 = useAnimatedStyle(() => ({ opacity: op3.value, transform: [{ translateY: ty3.value }] }));
+
+  useEffect(() => {
+    const spring = { damping: 22, stiffness: 130 };
+    [[op0, ty0], [op1, ty1], [op2, ty2], [op3, ty3]].forEach(([op, ty], i) => {
+      const delay = i * 80;
+      op.value = withDelay(delay, withTiming(1, { duration: 420 }));
+      ty.value = withDelay(delay, withSpring(0, spring));
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const weekData = getWeekData(dailyData, weekOffset);
   const weekMinutes = weekData.reduce((sum, d) => sum + d.minutes, 0);
   const weekSessions = weekData.reduce((sum, d) => sum + d.sessions, 0);
@@ -262,7 +289,7 @@ export default function StatsScreen() {
         </View>
 
         {/* Top stat cards */}
-        <View style={styles.statRow}>
+        <Animated.View style={[styles.statRow, cardStyle0]}>
           <StatCard
             label="Sessions"
             value={isLoaded ? totalSessions : '—'}
@@ -276,10 +303,10 @@ export default function StatsScreen() {
             value={isLoaded ? (streak > 0 ? `${streak} 🔥` : '0') : '—'}
             accent={streak > 0}
           />
-        </View>
+        </Animated.View>
 
         {/* This-week summary row */}
-        <View style={styles.weekSummaryRow}>
+        <Animated.View style={[styles.weekSummaryRow, cardStyle1]}>
           <View style={styles.weekSummaryItem}>
             <Text style={styles.weekSummaryValue}>{weekSessions}</Text>
             <Text style={styles.weekSummaryLabel}>sessions this week</Text>
@@ -298,9 +325,10 @@ export default function StatsScreen() {
               </View>
             </>
           )}
-        </View>
+        </Animated.View>
 
         {/* Weekly bar chart with nav */}
+        <Animated.View style={cardStyle2}>
         <WeekChart
           weekData={weekData}
           weekOffset={weekOffset}
@@ -308,9 +336,10 @@ export default function StatsScreen() {
           onNextWeek={handleNextWeek}
           isPremium={isPremium}
         />
+        </Animated.View>
 
         {/* Achievements */}
-        <View style={styles.card}>
+        <Animated.View style={[styles.card, cardStyle3]}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Achievements</Text>
             <Text style={styles.cardSub}>
@@ -344,7 +373,7 @@ export default function StatsScreen() {
               );
             })}
           </View>
-        </View>
+        </Animated.View>
 
         {!isPremium && premiumLoaded && (
           <BannerAd placement="banner_stats" size="banner" style={styles.bannerAdContainer} />
