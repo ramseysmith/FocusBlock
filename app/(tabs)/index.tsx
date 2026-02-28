@@ -124,7 +124,7 @@ export default function TimerScreen() {
     } else {
       deactivateKeepAwake('pomodoro');
     }
-    return () => deactivateKeepAwake('pomodoro');
+    return () => { deactivateKeepAwake('pomodoro'); };
   }, [isRunning, keepAwakeEnabled]);
 
   // ── Countdown ticker ────────────────────────────────────────────────────────

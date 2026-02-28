@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useState, useEffect } from 'react';
 import { PurchaseManager } from '../src/services/purchases/PurchaseManager';
 import type { PurchasePackage, Offering, PurchaseResult } from '../src/services/purchases/types';
 
@@ -46,24 +46,27 @@ export function PremiumProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const purchasePackage = async (packageId: string): Promise<PurchaseResult> => {
+  const purchasePackage = useCallback(async (packageId: string): Promise<PurchaseResult> => {
     const result = await PurchaseManager.purchasePackage(packageId);
     setIsPremium(result.isPremium);
     if (result.isPremium) {
       // Find the purchased package in offerings to set currentPlan
-      for (const offering of offerings) {
-        const pkg = offering.packages.find((p) => p.id === packageId);
-        if (pkg) { setCurrentPlan(pkg); break; }
-      }
+      setOfferings((prev) => {
+        for (const offering of prev) {
+          const pkg = offering.packages.find((p) => p.id === packageId);
+          if (pkg) { setCurrentPlan(pkg); break; }
+        }
+        return prev;
+      });
     }
     return result;
-  };
+  }, []);
 
-  const restorePurchases = async (): Promise<PurchaseResult> => {
+  const restorePurchases = useCallback(async (): Promise<PurchaseResult> => {
     const result = await PurchaseManager.restorePurchases();
     setIsPremium(result.isPremium);
     return result;
-  };
+  }, []);
 
   return (
     <PremiumContext.Provider

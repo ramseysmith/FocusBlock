@@ -33,6 +33,17 @@ export function InterstitialTrigger({
 }: InterstitialTriggerProps) {
   const mountedRef = useRef(true);
 
+  // Keep callback refs up-to-date on every render so the trigger effect always
+  // calls the latest prop versions without needing them in its dep array.
+  const onShownRef    = useRef(onShown);
+  const onDismissedRef = useRef(onDismissed);
+  const onErrorRef    = useRef(onError);
+  const placementRef  = useRef(placement);
+  onShownRef.current    = onShown;
+  onDismissedRef.current = onDismissed;
+  onErrorRef.current    = onError;
+  placementRef.current  = placement;
+
   useEffect(() => {
     // Preload on mount so an ad is ready when first needed
     AdManager.preload('interstitial').catch(() => {});
@@ -42,20 +53,19 @@ export function InterstitialTrigger({
   useEffect(() => {
     if (!trigger) return;
 
-    console.log('[InterstitialTrigger] showing ad, placement:', placement);
     AdManager.showInterstitial()
       .then(() => {
         if (!mountedRef.current) return;
-        onShown?.();
-        onDismissed?.();
+        onShownRef.current?.();
+        onDismissedRef.current?.();
         // Preload next
         AdManager.preload('interstitial').catch(() => {});
       })
       .catch((err: Error) => {
         if (!mountedRef.current) return;
-        onError?.(err);
+        onErrorRef.current?.(err);
       });
-  }, [trigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trigger]);
 
   return null;
 }

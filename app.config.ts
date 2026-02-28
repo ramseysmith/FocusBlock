@@ -31,6 +31,7 @@ export default function config({ config }: ConfigContext): ExpoConfig {
     slug: 'FocusBlock',
 
     // Merge existing plugins (expo-router, expo-notifications) with new ones.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     plugins: [
       ...(Array.isArray(config.plugins) ? config.plugins : []),
       [
@@ -41,8 +42,7 @@ export default function config({ config }: ConfigContext): ExpoConfig {
         },
       ],
       withUnityAds,
-      ['react-native-purchases', {}],
-    ],
+    ] as any,
 
     extra: {
       ...config.extra,

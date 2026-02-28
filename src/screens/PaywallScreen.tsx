@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -158,6 +158,14 @@ export function PaywallScreen({ onClose }: Props) {
   const defaultPkg =
     packages.find((p) => isAnnualPackage(p))?.id ?? packages[0]?.id ?? '';
   const [selectedId, setSelectedId] = useState(defaultPkg);
+
+  // If offerings arrive after the modal opens (slow network), pick a default
+  useEffect(() => {
+    if (selectedId === '' && packages.length > 0) {
+      setSelectedId(defaultPkg);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packages.length]);
 
   const handlePurchase = async () => {
     if (!selectedId) return;

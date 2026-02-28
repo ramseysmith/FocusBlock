@@ -45,10 +45,16 @@ export function StatsProvider({ children }: { children: React.ReactNode }) {
 
   // Load persisted data on mount
   useEffect(() => {
-    loadDailyData().then((data) => {
-      setDailyData(data);
-      setIsLoaded(true);
-    });
+    loadDailyData()
+      .then((data) => {
+        setDailyData(data);
+      })
+      .catch(() => {
+        // Storage failure — proceed with empty data rather than staying stuck
+      })
+      .finally(() => {
+        setIsLoaded(true);
+      });
   }, []);
 
   const recordSession = useCallback(async (durationMinutes: number) => {

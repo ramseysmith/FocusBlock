@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -102,12 +102,14 @@ function SoundRow({
   onUnlock: () => Promise<void>;
 }) {
   const [loading, setLoading] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const handleToggle = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setLoading(true);
     await onToggle();
-    setLoading(false);
+    if (mountedRef.current) setLoading(false);
   };
 
   return (
@@ -276,7 +278,7 @@ export default function SoundsScreen() {
                   mix={mix}
                   isActive={isMixActive(mix)}
                   onPress={() => handleApplyMix(mix)}
-                  disabled={applyingMix !== null && applyingMix !== mix.label}
+                  disabled={applyingMix !== null}
                 />
               ))}
             </View>

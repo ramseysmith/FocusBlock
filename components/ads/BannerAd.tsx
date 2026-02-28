@@ -17,6 +17,7 @@ export function BannerAd({ placement, size = 'banner', style }: BannerAdProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
 
     AdManager.renderBannerView(placement, size, {
       onAdLoaded: () => {
@@ -33,7 +34,7 @@ export function BannerAd({ placement, size = 'banner', style }: BannerAdProps) {
         setAdElement(el);
         // If the adapter resolves but the ad didn't call onAdLoaded (e.g. Mock)
         // we clear loading after a short grace period
-        setTimeout(() => { if (!cancelled) setLoading(false); }, 200);
+        graceTimer = setTimeout(() => { if (!cancelled) setLoading(false); }, 200);
       }
     }).catch(() => {
       if (!cancelled) {
@@ -42,7 +43,10 @@ export function BannerAd({ placement, size = 'banner', style }: BannerAdProps) {
       }
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (graceTimer !== null) clearTimeout(graceTimer);
+    };
   }, [placement, size]);
 
   if (failed || (!loading && !adElement)) return null;
