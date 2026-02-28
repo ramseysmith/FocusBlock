@@ -24,6 +24,8 @@ import {
 } from '../../lib/notifications';
 import { InterstitialTrigger } from '../../components/ads/InterstitialTrigger';
 import { useAds } from '../../hooks/useAds';
+import { usePremium } from '../../context/PremiumContext';
+import { PaywallModal } from '../../components/paywall/PaywallModal';
 
 // One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -58,6 +60,8 @@ export default function TimerScreen() {
   const { soundStates } = useAudioMixer();
   const { recordSession } = useStatsStore();
   const { onFocusSessionComplete } = useAds();
+  const { isPremium } = usePremium();
+  const [paywallVisible, setPaywallVisible] = useState(false);
   // Stable refs so narrow-dep effects always call the latest versions
   const recordSessionRef = useRef(recordSession);
   recordSessionRef.current = recordSession;
@@ -237,13 +241,20 @@ export default function TimerScreen() {
               })}
             </Text>
           </View>
-          {focusSessions > 0 && (
-            <View style={styles.sessionBadge}>
-              <Text style={styles.sessionBadgeText}>
-                {focusSessions} {focusSessions === 1 ? 'session' : 'sessions'}
-              </Text>
-            </View>
-          )}
+          <View style={styles.headerRight}>
+            {!isPremium && (
+              <Pressable style={styles.goProPill} onPress={() => setPaywallVisible(true)} hitSlop={8}>
+                <Text style={styles.goProPillText}>Go Pro ✦</Text>
+              </Pressable>
+            )}
+            {focusSessions > 0 && (
+              <View style={styles.sessionBadge}>
+                <Text style={styles.sessionBadgeText}>
+                  {focusSessions} {focusSessions === 1 ? 'session' : 'sessions'}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Mode selector */}
@@ -335,6 +346,8 @@ export default function TimerScreen() {
           <Text style={styles.quoteText}>"{QUOTE}"</Text>
         </View>
       </ScrollView>
+
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
     </SafeAreaView>
   );
 }
@@ -371,6 +384,22 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     marginTop: 4,
     letterSpacing: 0.4,
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  goProPill: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: COLORS.accent,
+  },
+  goProPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.bgDark,
+    letterSpacing: 0.2,
   },
   sessionBadge: {
     paddingHorizontal: 12,

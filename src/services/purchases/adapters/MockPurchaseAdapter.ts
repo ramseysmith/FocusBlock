@@ -60,8 +60,8 @@ export class MockPurchaseAdapter implements PurchaseService {
             product: {
               title: 'Monthly',
               description: 'Full access, billed monthly',
-              priceString: '$4.99/mo',
-              price: 4.99,
+              priceString: '$2.99/mo',
+              price: 2.99,
               currencyCode: 'USD',
             },
           },
@@ -71,8 +71,8 @@ export class MockPurchaseAdapter implements PurchaseService {
             product: {
               title: 'Annual',
               description: 'Full access, billed yearly',
-              priceString: '$29.99/yr',
-              price: 29.99,
+              priceString: '$19.99/yr',
+              price: 19.99,
               currencyCode: 'USD',
             },
           },

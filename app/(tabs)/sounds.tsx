@@ -103,6 +103,11 @@ function SoundRow({
       <View style={styles.soundLeft}>
         <View style={[styles.soundIcon, isPlaying && styles.soundIconActive]}>
           <Text style={styles.soundEmoji}>{sound.emoji}</Text>
+          {isLocked && (
+            <View style={styles.lockOverlay}>
+              <Text style={styles.lockIcon}>🔒</Text>
+            </View>
+          )}
         </View>
         <View>
           <Text style={[styles.soundName, isPlaying && styles.soundNameActive]}>
@@ -442,6 +447,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.surfaceHighlight,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
   soundIconActive: {
     backgroundColor: 'rgba(232,168,124,0.12)',
@@ -501,6 +507,22 @@ const styles = StyleSheet.create({
   // ── Locked sounds
   soundRowLocked: {
     opacity: 0.75,
+  },
+  lockOverlay: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: COLORS.bgDark,
+    borderWidth: 1,
+    borderColor: COLORS.surfaceBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockIcon: {
+    fontSize: 9,
   },
   lockedSub: {
     fontSize: 11,
