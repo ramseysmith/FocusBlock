@@ -17,6 +17,8 @@ export const AMBIENT_SOUNDS = [
 
 export type AmbientSound = (typeof AMBIENT_SOUNDS)[number];
 
+export const PREMIUM_SOUND_IDS = new Set<string>(['fire', 'cafe', 'wind']);
+
 export const QUICK_MIXES = [
   { label: '☕ Coffee Shop', sounds: ['cafe', 'rain'] },
   { label: '🏕️ Campsite',   sounds: ['fire', 'forest', 'wind'] },

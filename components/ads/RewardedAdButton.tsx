@@ -7,6 +7,7 @@ import { COLORS } from '../../constants/theme';
 interface RewardedAdButtonProps {
   onReward: (reward: RewardItem) => void;
   onError?: (error: Error) => void;
+  placement?: string;
   label?: string;
   loadingLabel?: string;
   style?: object;
@@ -22,6 +23,7 @@ interface RewardedAdButtonProps {
 export function RewardedAdButton({
   onReward,
   onError,
+  placement = 'rewarded_default',
   label = 'Watch ad',
   loadingLabel = 'Loading…',
   style,
@@ -50,6 +52,7 @@ export function RewardedAdButton({
 
   const handlePress = async () => {
     if (busy || disabled) return;
+    console.log('[RewardedAdButton] showing rewarded ad, placement:', placement);
     setBusy(true);
     try {
       await AdManager.showRewarded(onReward);

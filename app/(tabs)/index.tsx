@@ -22,6 +22,8 @@ import {
   cancelNotification,
   dismissDeliveredNotifications,
 } from '../../lib/notifications';
+import { InterstitialTrigger } from '../../components/ads/InterstitialTrigger';
+import { useAds } from '../../hooks/useAds';
 
 // One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -55,12 +57,16 @@ export default function TimerScreen() {
   } = useTimerSettings();
   const { soundStates } = useAudioMixer();
   const { recordSession } = useStatsStore();
+  const { onFocusSessionComplete } = useAds();
   // Stable refs so narrow-dep effects always call the latest versions
   const recordSessionRef = useRef(recordSession);
   recordSessionRef.current = recordSession;
+  const onFocusSessionCompleteRef = useRef(onFocusSessionComplete);
+  onFocusSessionCompleteRef.current = onFocusSessionComplete;
   const notifIdRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
   const backgroundedAtRef = useRef<number | null>(null);
+  const [adTrigger, setAdTrigger] = useState(0);
 
   // Derive effective mode durations from settings
   const modes = useMemo(
@@ -134,6 +140,9 @@ export default function TimerScreen() {
     if (isFocus) {
       setFocusSessions(newFocusSessions);
       recordSessionRef.current(Math.round(modes[modeIdx].duration / 60));
+      onFocusSessionCompleteRef.current().then((shouldShow) => {
+        if (shouldShow) setAdTrigger((t) => t + 1);
+      }).catch(() => {});
     }
 
     const next = nextModeIndex(modeIdx, newFocusSessions);
@@ -206,6 +215,11 @@ export default function TimerScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <InterstitialTrigger
+        trigger={adTrigger}
+        placement="interstitial_session"
+        onError={(e) => console.warn('[TimerScreen] interstitial error:', e)}
+      />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.container}

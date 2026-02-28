@@ -5,7 +5,9 @@ import * as Notifications from 'expo-notifications';
 import { TimerSettingsProvider } from '../context/TimerSettings';
 import { AudioMixerProvider } from '../context/AudioMixer';
 import { StatsProvider } from '../context/StatsStore';
+import { PremiumProvider } from '../context/PremiumContext';
 import { setupAndroidChannels } from '../lib/notifications';
+import { cleanupExpiredUnlocks } from '../lib/adStorage';
 import { AdManager } from '../src/services/ads/AdManager';
 
 export default function RootLayout() {
@@ -16,6 +18,9 @@ export default function RootLayout() {
     // Initialize ad SDK (falls back to mock on error)
     AdManager.initialize();
 
+    // Remove expired sound unlocks
+    cleanupExpiredUnlocks().catch(() => {});
+
     // Handle taps on delivered notifications — bring app to foreground naturally
     const sub = Notifications.addNotificationResponseReceivedListener(() => {
       // expo-router handles foreground; no explicit navigation needed here
@@ -25,15 +30,17 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <TimerSettingsProvider>
-      <StatsProvider>
-        <AudioMixerProvider>
-          <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
-          </Stack>
-        </AudioMixerProvider>
-      </StatsProvider>
-    </TimerSettingsProvider>
+    <PremiumProvider>
+      <TimerSettingsProvider>
+        <StatsProvider>
+          <AudioMixerProvider>
+            <StatusBar style="light" />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(tabs)" />
+            </Stack>
+          </AudioMixerProvider>
+        </StatsProvider>
+      </TimerSettingsProvider>
+    </PremiumProvider>
   );
 }

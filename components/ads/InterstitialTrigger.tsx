@@ -7,6 +7,7 @@ interface InterstitialTriggerProps {
    * The component shows an ad whenever `trigger` changes to a truthy value.
    */
   trigger: number;
+  placement?: string;
   onShown?: () => void;
   onDismissed?: () => void;
   onError?: (error: Error) => void;
@@ -25,6 +26,7 @@ interface InterstitialTriggerProps {
  */
 export function InterstitialTrigger({
   trigger,
+  placement = 'interstitial_default',
   onShown,
   onDismissed,
   onError,
@@ -40,6 +42,7 @@ export function InterstitialTrigger({
   useEffect(() => {
     if (!trigger) return;
 
+    console.log('[InterstitialTrigger] showing ad, placement:', placement);
     AdManager.showInterstitial()
       .then(() => {
         if (!mountedRef.current) return;

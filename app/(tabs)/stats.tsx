@@ -5,6 +5,8 @@ import Svg, { Rect, G, Text as SvgText, Line, Defs, LinearGradient, Stop } from 
 import { COLORS } from '../../constants/theme';
 import { useStatsStore } from '../../context/StatsStore';
 import { getWeekData, formatMinutes, type WeekDay } from '../../lib/storage';
+import { BannerAd } from '../../components/ads/BannerAd';
+import { usePremium } from '../../context/PremiumContext';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -182,6 +184,7 @@ function WeekChart({ weekData }: { weekData: WeekDay[] }) {
 
 export default function StatsScreen() {
   const { totalSessions, totalMinutes, streak, dailyData, isLoaded } = useStatsStore();
+  const { isPremium, isLoaded: premiumLoaded } = usePremium();
 
   const weekData = getWeekData(dailyData);
   const weekMinutes = weekData.reduce((sum, d) => sum + d.minutes, 0);
@@ -280,6 +283,10 @@ export default function StatsScreen() {
             })}
           </View>
         </View>
+
+        {!isPremium && premiumLoaded && (
+          <BannerAd placement="banner_stats" size="banner" style={styles.bannerAdContainer} />
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -399,4 +406,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkText: { fontSize: 11, color: COLORS.shortBreak, fontWeight: '600' },
+
+  bannerAdContainer: { marginTop: 12, marginBottom: 8 },
 });

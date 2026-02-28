@@ -12,6 +12,8 @@ import { COLORS } from '../../constants/theme';
 import { AMBIENT_SOUNDS, QUICK_MIXES } from '../../constants/data';
 import { useAudioMixer, type SoundId } from '../../context/AudioMixer';
 import { VolumeSlider } from '../../components/VolumeSlider';
+import { RewardedAdButton } from '../../components/ads/RewardedAdButton';
+import { useAds } from '../../hooks/useAds';
 
 // ── Quick mix button ──────────────────────────────────────────────────────────
 
@@ -21,15 +23,18 @@ function MixButton({
   mix,
   isActive,
   onPress,
+  disabled,
 }: {
   mix: Mix;
   isActive: boolean;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.mixBtn, isActive && styles.mixBtnActive]}
+      disabled={disabled}
+      style={[styles.mixBtn, isActive && styles.mixBtnActive, disabled && styles.mixBtnDisabled]}
     >
       <Text style={[styles.mixBtnText, isActive && styles.mixBtnTextActive]}>
         {mix.label}
@@ -46,12 +51,16 @@ function SoundRow({
   volume,
   onToggle,
   onVolume,
+  isLocked,
+  onUnlock,
 }: {
   sound: (typeof AMBIENT_SOUNDS)[number];
   isPlaying: boolean;
   volume: number;
   onToggle: () => void;
   onVolume: (v: number) => void;
+  isLocked: boolean;
+  onUnlock: () => Promise<void>;
 }) {
   const [loading, setLoading] = useState(false);
 
@@ -62,7 +71,7 @@ function SoundRow({
   };
 
   return (
-    <View style={[styles.soundRow, isPlaying && styles.soundRowActive]}>
+    <View style={[styles.soundRow, isPlaying && styles.soundRowActive, isLocked && styles.soundRowLocked]}>
       {/* Left: emoji + labels */}
       <View style={styles.soundLeft}>
         <View style={[styles.soundIcon, isPlaying && styles.soundIconActive]}>
@@ -72,34 +81,48 @@ function SoundRow({
           <Text style={[styles.soundName, isPlaying && styles.soundNameActive]}>
             {sound.label}
           </Text>
-          {isPlaying && (
+          {isLocked ? (
+            <Text style={styles.lockedSub}>Premium · Watch ad to unlock</Text>
+          ) : isPlaying ? (
             <Text style={[styles.soundSub, { color: COLORS.accent + 'aa' }]}>
               {Math.round(volume * 100)}%
             </Text>
-          )}
+          ) : null}
         </View>
       </View>
 
-      {/* Right: toggle */}
-      <Pressable
-        onPress={handleToggle}
-        style={[styles.toggleBtn, isPlaying && styles.toggleBtnActive]}
-        hitSlop={12}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color={isPlaying ? COLORS.bgDark : COLORS.textMuted} />
-        ) : (
-          <View
-            style={[
-              styles.toggleDot,
-              isPlaying && styles.toggleDotActive,
-            ]}
-          />
-        )}
-      </Pressable>
+      {/* Right: toggle or unlock button */}
+      {isLocked ? (
+        <RewardedAdButton
+          placement="rewarded_unlock"
+          label="🔓 Unlock"
+          loadingLabel="Loading…"
+          style={styles.unlockBtn}
+          textStyle={styles.unlockBtnText}
+          onReward={() => onUnlock().then(() => handleToggle())}
+          onError={(e) => console.warn('[SoundsScreen] rewarded ad error:', e)}
+        />
+      ) : (
+        <Pressable
+          onPress={handleToggle}
+          style={[styles.toggleBtn, isPlaying && styles.toggleBtnActive]}
+          hitSlop={12}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color={isPlaying ? COLORS.bgDark : COLORS.textMuted} />
+          ) : (
+            <View
+              style={[
+                styles.toggleDot,
+                isPlaying && styles.toggleDotActive,
+              ]}
+            />
+          )}
+        </Pressable>
+      )}
 
-      {/* Volume slider — only when playing */}
-      {isPlaying && (
+      {/* Volume slider — only when playing (and not locked) */}
+      {!isLocked && isPlaying && (
         <View style={styles.sliderWrap}>
           <VolumeSlider
             value={volume}
@@ -116,6 +139,7 @@ function SoundRow({
 
 export default function SoundsScreen() {
   const { soundStates, toggleSound, setVolume, applyMix, stopAll } = useAudioMixer();
+  const { isSoundLocked, grantSoundUnlock, isLoaded } = useAds();
 
   const activeSounds = AMBIENT_SOUNDS.filter((s) => soundStates[s.id as SoundId]?.isPlaying);
 
@@ -131,6 +155,7 @@ export default function SoundsScreen() {
   const [applyingMix, setApplyingMix] = useState<string | null>(null);
 
   const handleApplyMix = async (mix: Mix) => {
+    if (mix.sounds.some((id) => isSoundLocked(id))) return;
     if (isMixActive(mix)) {
       await stopAll();
       return;
@@ -172,6 +197,7 @@ export default function SoundsScreen() {
                 mix={mix}
                 isActive={isMixActive(mix)}
                 onPress={() => handleApplyMix(mix)}
+                disabled={isLoaded && mix.sounds.some((id) => isSoundLocked(id))}
               />
             ))}
           </View>
@@ -191,6 +217,7 @@ export default function SoundsScreen() {
           <View style={styles.soundList}>
             {AMBIENT_SOUNDS.map((sound) => {
               const state = soundStates[sound.id as SoundId];
+              const locked = isLoaded ? isSoundLocked(sound.id) : false;
               return (
                 <SoundRow
                   key={sound.id}
@@ -199,6 +226,8 @@ export default function SoundsScreen() {
                   volume={state?.volume ?? 0.7}
                   onToggle={() => toggleSound(sound.id as SoundId)}
                   onVolume={(v) => setVolume(sound.id as SoundId, v)}
+                  isLocked={locked}
+                  onUnlock={async () => { await grantSoundUnlock(sound.id); }}
                 />
               );
             })}
@@ -389,6 +418,27 @@ const styles = StyleSheet.create({
     paddingRight: 4,
     paddingTop: 10,
     paddingBottom: 2,
+  },
+
+  // ── Locked sounds
+  soundRowLocked: {
+    opacity: 0.75,
+  },
+  lockedSub: {
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginTop: 1,
+  },
+  unlockBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 100,
+  },
+  unlockBtnText: {
+    fontSize: 12,
+  },
+  mixBtnDisabled: {
+    opacity: 0.4,
   },
 
   // ── Tip
