@@ -1,4 +1,5 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
+import { withUnityAds } from './plugins/withUnityAds';
 
 // ── Ad provider ────────────────────────────────────────────────────────────────
 // Change this one value (or set AD_PROVIDER env var) to swap ad networks.
@@ -39,6 +40,7 @@ export default function config({ config }: ConfigContext): ExpoConfig {
           iosAppId:     admobIosAppId,
         },
       ],
+      withUnityAds,
     ],
 
     extra: {

@@ -19,6 +19,7 @@
     "expo-linear-gradient": "~55.0.8",
     "expo-notifications": "~55.0.10",
     "expo-router": "~55.0.3",
+    "expo-unity-ads": "file:./modules/expo-unity-ads",
     "expo-status-bar": "~55.0.4",
     "react": "19.2.0",
     "react-native": "0.83.2",
@@ -27,8 +28,7 @@
     "react-native-reanimated": "^4.2.2",
     "react-native-safe-area-context": "~5.6.2",
     "react-native-screens": "~4.23.0",
-    "react-native-svg": "15.15.3",
-    "react-native-unity-ads": "^1.0.3"
+    "react-native-svg": "15.15.3"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

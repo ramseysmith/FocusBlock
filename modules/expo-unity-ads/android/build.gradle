@@ -1,0 +1,43 @@
+buildscript {
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    // Keep in sync with the Kotlin version used by the host project
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24"
+  }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+// Inherit compileSdk / minSdk from the host app when available
+def safeExtGet = { param, defaultValue ->
+  rootProject.ext.has(param) ? rootProject.ext.get(param) : defaultValue
+}
+
+android {
+  compileSdkVersion safeExtGet('compileSdkVersion', 35)
+
+  defaultConfig {
+    minSdkVersion safeExtGet('minSdkVersion', 24)
+    targetSdkVersion safeExtGet('targetSdkVersion', 35)
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+  // Unity Ads 4.x Maven repository
+  maven { url 'https://storage.googleapis.com/download.unity3d.com/maven-proxy' }
+}
+
+dependencies {
+  // Expo Modules Core — resolved via auto-linking from the host project
+  implementation project(':expo-modules-core')
+
+  // Unity Ads Android SDK 4.x
+  // Changelog: https://github.com/Unity-Technologies/unity-ads-android/blob/master/CHANGELOG.md
+  implementation 'com.unity3d.ads:unity-ads:4.12.2'
+}

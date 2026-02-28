@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "android": {
+    "modules": ["expo.modules.unityads.ExpoUnityAdsModule"]
+  },
+  "ios": {
+    "modules": ["ExpoUnityAdsModule"]
+  }
+}
