@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,11 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
-  TextInput,
+  Share,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { COLORS } from '../../constants/theme';
 import { useTimerSettings } from '../../context/TimerSettings';
 import {
@@ -20,34 +22,17 @@ import {
 import { usePremium } from '../../context/PremiumContext';
 import { PaywallModal } from '../../components/paywall/PaywallModal';
 
-// ── Data ──────────────────────────────────────────────────────────────────────
+// ── External links (replace with real URLs before shipping) ───────────────────
 
-type DurationOption = { label: string; minutes: number };
+const APP_STORE_URL  = 'https://apps.apple.com/app/id000000000';
+const PRIVACY_URL    = 'https://example.com/privacy';
+const TERMS_URL      = 'https://example.com/terms';
 
-const FOCUS_OPTIONS: DurationOption[] = [
-  { label: '15 min', minutes: 15 },
-  { label: '25 min', minutes: 25 },
-  { label: '45 min', minutes: 45 },
-  { label: '60 min', minutes: 60 },
-];
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
-const SHORT_BREAK_OPTIONS: DurationOption[] = [
-  { label: '3 min',  minutes: 3  },
-  { label: '5 min',  minutes: 5  },
-  { label: '10 min', minutes: 10 },
-  { label: '15 min', minutes: 15 },
-];
+// ── Reminder time presets ─────────────────────────────────────────────────────
 
-const LONG_BREAK_OPTIONS: DurationOption[] = [
-  { label: '10 min', minutes: 10 },
-  { label: '15 min', minutes: 15 },
-  { label: '20 min', minutes: 20 },
-  { label: '30 min', minutes: 30 },
-];
-
-type ReminderTime = { label: string; hour: number; minute: number };
-
-const REMINDER_TIMES: ReminderTime[] = [
+const REMINDER_TIMES = [
   { label: '6 AM',  hour: 6,  minute: 0 },
   { label: '7 AM',  hour: 7,  minute: 0 },
   { label: '8 AM',  hour: 8,  minute: 0 },
@@ -58,16 +43,43 @@ const REMINDER_TIMES: ReminderTime[] = [
   { label: '5 PM',  hour: 17, minute: 0 },
 ];
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Shared primitives ─────────────────────────────────────────────────────────
 
-function RowLabel({ title, sub }: { title: string; sub?: string }) {
+function SectionHeader({ title }: { title: string }) {
+  return <Text style={styles.sectionTitle}>{title}</Text>;
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return <View style={styles.card}>{children}</View>;
+}
+
+function Divider() {
+  return <View style={styles.divider} />;
+}
+
+// ── SettingRow ────────────────────────────────────────────────────────────────
+
+function SettingRow({
+  title,
+  sub,
+  right,
+}: {
+  title: string;
+  sub?: string;
+  right: React.ReactNode;
+}) {
   return (
-    <View style={{ flex: 1 }}>
-      <Text style={styles.rowTitle}>{title}</Text>
-      {sub && <Text style={styles.rowSub}>{sub}</Text>}
+    <View style={styles.row}>
+      <View style={styles.rowLabel}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        {sub ? <Text style={styles.rowSub}>{sub}</Text> : null}
+      </View>
+      <View style={styles.rowRight}>{right}</View>
     </View>
   );
 }
+
+// ── ToggleRow ─────────────────────────────────────────────────────────────────
 
 function ToggleRow({
   title,
@@ -81,109 +93,100 @@ function ToggleRow({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <View style={styles.row}>
-      <RowLabel title={title} sub={sub} />
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ false: COLORS.surfaceHighlight, true: 'rgba(232,168,124,0.5)' }}
-        thumbColor={value ? COLORS.accent : 'rgba(255,255,255,0.4)'}
-      />
-    </View>
+    <SettingRow
+      title={title}
+      sub={sub}
+      right={
+        <Switch
+          value={value}
+          onValueChange={onChange}
+          trackColor={{ false: COLORS.surfaceHighlight, true: 'rgba(232,168,124,0.5)' }}
+          thumbColor={value ? COLORS.accent : 'rgba(255,255,255,0.4)'}
+        />
+      }
+    />
   );
 }
 
-function DurationPicker({
-  options,
-  selected,
-  onSelect,
-  isPremium,
-  onUpgrade,
-}: {
-  options: DurationOption[];
-  selected: number;
-  onSelect: (m: number) => void;
-  isPremium: boolean;
-  onUpgrade: () => void;
-}) {
-  const isCustom = !options.some((o) => o.minutes === selected);
-  const [showInput, setShowInput] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [inputError, setInputError] = useState(false);
-  const inputRef = useRef<TextInput>(null);
+// ── Stepper ───────────────────────────────────────────────────────────────────
 
-  const handleCustomTap = () => {
-    if (!isPremium) {
-      onUpgrade();
-      return;
-    }
-    setInputValue(isCustom ? String(selected) : '');
-    setInputError(false);
-    setShowInput((prev) => !prev);
-  };
+interface StepperProps {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+  onChange: (v: number) => void;
+  /** When true: show locked state with Pro badge */
+  locked?: boolean;
+  onUnlock?: () => void;
+}
 
-  const handleInputSubmit = () => {
-    const parsed = parseInt(inputValue, 10);
-    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 240) {
-      setInputError(true);
-      return;
-    }
-    onSelect(parsed);
-    setShowInput(false);
-    setInputError(false);
-  };
-
-  const customLabel = isCustom ? `${selected}m` : 'Custom ✦';
-
-  return (
-    <View>
-      <View style={styles.durationPicker}>
-        {options.map((opt) => (
-          <Pressable
-            key={opt.minutes}
-            onPress={() => { onSelect(opt.minutes); setShowInput(false); }}
-            style={[styles.chip, selected === opt.minutes && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, selected === opt.minutes && styles.chipTextActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        ))}
-        <Pressable
-          onPress={handleCustomTap}
-          style={[styles.chip, isCustom && styles.chipActive, styles.chipCustom]}
-        >
-          <Text style={[styles.chipText, isCustom && styles.chipTextActive, styles.chipCustomText]}>
-            {customLabel}
-          </Text>
+function Stepper({ value, min, max, step, format, onChange, locked, onUnlock }: StepperProps) {
+  if (locked) {
+    return (
+      <View style={styles.stepperLocked}>
+        <Text style={styles.stepperLockedValue}>{format(value)}</Text>
+        <Pressable style={styles.proBadge} onPress={onUnlock} hitSlop={10}>
+          <Text style={styles.proBadgeText}>🔒 Pro</Text>
         </Pressable>
       </View>
+    );
+  }
 
-      {showInput && (
-        <View style={styles.customInputRow}>
-          <TextInput
-            ref={inputRef}
-            style={[styles.customInput, inputError && styles.customInputError]}
-            value={inputValue}
-            onChangeText={(t) => { setInputValue(t); setInputError(false); }}
-            placeholder="1–240 min"
-            placeholderTextColor={COLORS.textDim}
-            keyboardType="number-pad"
-            maxLength={3}
-            returnKeyType="done"
-            onSubmitEditing={handleInputSubmit}
-            autoFocus
-          />
-          <Pressable style={styles.customInputBtn} onPress={handleInputSubmit}>
-            <Text style={styles.customInputBtnText}>Set</Text>
-          </Pressable>
-        </View>
-      )}
+  const decrement = () => onChange(Math.max(min, +(value - step).toFixed(2)));
+  const increment = () => onChange(Math.min(max, +(value + step).toFixed(2)));
+
+  return (
+    <View style={styles.stepper}>
+      <Pressable
+        style={[styles.stepBtn, value <= min && styles.stepBtnDisabled]}
+        onPress={decrement}
+        disabled={value <= min}
+        hitSlop={8}
+      >
+        <Text style={styles.stepBtnText}>−</Text>
+      </Pressable>
+      <Text style={styles.stepperValue}>{format(value)}</Text>
+      <Pressable
+        style={[styles.stepBtn, value >= max && styles.stepBtnDisabled]}
+        onPress={increment}
+        disabled={value >= max}
+        hitSlop={8}
+      >
+        <Text style={styles.stepBtnText}>+</Text>
+      </Pressable>
     </View>
   );
 }
 
-function ReminderTimePicker({
+// ── LinkRow ───────────────────────────────────────────────────────────────────
+
+function LinkRow({
+  title,
+  sub,
+  onPress,
+  destructive,
+}: {
+  title: string;
+  sub?: string;
+  onPress: () => void;
+  destructive?: boolean;
+}) {
+  return (
+    <Pressable style={styles.row} onPress={onPress}>
+      <View style={styles.rowLabel}>
+        <Text style={[styles.rowTitle, destructive && styles.rowTitleDestructive]}>{title}</Text>
+        {sub ? <Text style={styles.rowSub}>{sub}</Text> : null}
+      </View>
+      <Text style={styles.linkArrow}>›</Text>
+    </Pressable>
+  );
+}
+
+// ── TimePicker ────────────────────────────────────────────────────────────────
+
+function TimePicker({
   selectedHour,
   selectedMinute,
   onSelect,
@@ -193,21 +196,24 @@ function ReminderTimePicker({
   onSelect: (h: number, m: number) => void;
 }) {
   return (
-    <View style={styles.reminderTimeRow}>
-      {REMINDER_TIMES.map((t) => {
-        const active = t.hour === selectedHour && t.minute === selectedMinute;
-        return (
-          <Pressable
-            key={t.label}
-            onPress={() => onSelect(t.hour, t.minute)}
-            style={[styles.timeChip, active && styles.timeChipActive]}
-          >
-            <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>
-              {t.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.timePickerWrap}>
+      <Text style={styles.timePickerLabel}>Remind me at</Text>
+      <View style={styles.timeChipsRow}>
+        {REMINDER_TIMES.map((t) => {
+          const active = t.hour === selectedHour && t.minute === selectedMinute;
+          return (
+            <Pressable
+              key={t.label}
+              onPress={() => onSelect(t.hour, t.minute)}
+              style={[styles.timeChip, active && styles.timeChipActive]}
+            >
+              <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>
+                {t.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -216,18 +222,26 @@ function ReminderTimePicker({
 
 export default function SettingsScreen() {
   const {
-    focusMins, shortBreakMins, longBreakMins,
-    autoStart, keepAwakeEnabled,
-    notificationsEnabled, reminderEnabled, reminderHour, reminderMinute,
-    setFocusMins, setShortBreakMins, setLongBreakMins,
-    setAutoStart, setKeepAwakeEnabled,
-    setNotificationsEnabled, setReminderEnabled, setReminderHour, setReminderMinute,
+    // Timer
+    focusMins, shortBreakMins, longBreakMins, sessionsBeforeLongBreak,
+    autoStartBreaks, autoStartFocus, keepAwakeEnabled,
+    setFocusMins, setShortBreakMins, setLongBreakMins, setSessionsBeforeLongBreak,
+    setAutoStartBreaks, setAutoStartFocus, setKeepAwakeEnabled,
+    // Sound
+    defaultVolume, fadeInDuration,
+    setDefaultVolume, setFadeInDuration,
+    // Notifications
+    notificationsEnabled, sessionCompleteAlert, breakReminderEnabled,
+    dailyReminderEnabled, reminderHour, reminderMinute,
+    setNotificationsEnabled, setSessionCompleteAlert, setBreakReminderEnabled,
+    setDailyReminderEnabled, setReminderHour, setReminderMinute,
   } = useTimerSettings();
 
-  const { isPremium } = usePremium();
+  const { isPremium, restorePurchases } = usePremium();
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const openPaywall = useCallback(() => setPaywallVisible(true), []);
 
-  // ── Notification permission helpers ───────────────────────────────────────
+  // ── Notification helpers ─────────────────────────────────────────────────
 
   const ensurePermissions = async (): Promise<boolean> => {
     const granted = await requestPermissions();
@@ -235,7 +249,7 @@ export default function SettingsScreen() {
       Alert.alert(
         'Notifications disabled',
         'Please enable notifications for FocusBlock in your device Settings.',
-        [{ text: 'OK' }]
+        [{ text: 'OK' }],
       );
     }
     return granted;
@@ -247,20 +261,20 @@ export default function SettingsScreen() {
       if (!granted) return;
     }
     setNotificationsEnabled(enabled);
-    if (!enabled && reminderEnabled) {
-      setReminderEnabled(false);
+    if (!enabled && dailyReminderEnabled) {
+      setDailyReminderEnabled(false);
       await cancelReminder();
     }
   };
 
-  const handleToggleReminder = async (enabled: boolean) => {
+  const handleToggleDailyReminder = async (enabled: boolean) => {
     if (enabled) {
       const granted = await ensurePermissions();
       if (!granted) return;
-      setReminderEnabled(true);
+      setDailyReminderEnabled(true);
       await scheduleReminder(reminderHour, reminderMinute);
     } else {
-      setReminderEnabled(false);
+      setDailyReminderEnabled(false);
       await cancelReminder();
     }
   };
@@ -268,9 +282,45 @@ export default function SettingsScreen() {
   const handleReminderTimeChange = async (hour: number, minute: number) => {
     setReminderHour(hour);
     setReminderMinute(minute);
-    if (reminderEnabled) {
-      await scheduleReminder(hour, minute);
+    if (dailyReminderEnabled) await scheduleReminder(hour, minute);
+  };
+
+  // ── General helpers ──────────────────────────────────────────────────────
+
+  const handleRateApp = async () => {
+    const supported = await Linking.canOpenURL(APP_STORE_URL);
+    if (supported) {
+      await Linking.openURL(APP_STORE_URL);
+    } else {
+      Alert.alert('Cannot open App Store', 'Please search for FocusBlock in the App Store.');
     }
+  };
+
+  const handleShareApp = async () => {
+    try {
+      await Share.share({
+        message: "I've been using FocusBlock to stay deeply focused. Check it out!",
+        url: APP_STORE_URL,
+      });
+    } catch {}
+  };
+
+  const handleRestorePurchases = async () => {
+    try {
+      const result = await restorePurchases();
+      if (result.isPremium) {
+        Alert.alert('Restored!', 'Your Pro subscription has been restored.');
+      } else {
+        Alert.alert('Nothing to restore', 'No active subscription was found for this account.');
+      }
+    } catch (err: any) {
+      Alert.alert('Restore failed', err?.message ?? 'Please try again.');
+    }
+  };
+
+  const handleOpenURL = async (url: string) => {
+    const supported = await Linking.canOpenURL(url);
+    if (supported) await Linking.openURL(url);
   };
 
   const handleDevResetPremium = async () => {
@@ -279,126 +329,271 @@ export default function SettingsScreen() {
     Alert.alert('Premium Reset', 'Restart the app to apply the change.');
   };
 
+  // ── Reminder time label for hint ─────────────────────────────────────────
+
+  const reminderTimeLabel =
+    REMINDER_TIMES.find((t) => t.hour === reminderHour && t.minute === reminderMinute)?.label ??
+    `${reminderHour}:${String(reminderMinute).padStart(2, '0')}`;
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <Text style={styles.screenTitle}>Settings</Text>
         </View>
 
-        {/* Timer durations */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* SECTION 1: Timer Settings                                         */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Timer Durations</Text>
+          <SectionHeader title="Timer Settings" />
 
-          <View style={styles.card}>
-            <Text style={styles.pickerLabel}>Focus</Text>
-            <DurationPicker
-              options={FOCUS_OPTIONS}
-              selected={focusMins}
-              onSelect={setFocusMins}
-              isPremium={isPremium}
-              onUpgrade={() => setPaywallVisible(true)}
+          {/* Duration controls */}
+          <Card>
+            {/* Focus */}
+            <SettingRow
+              title="Focus duration"
+              sub={isPremium ? undefined : 'Pro feature'}
+              right={
+                <Stepper
+                  value={focusMins}
+                  min={5}
+                  max={120}
+                  step={5}
+                  format={(v) => `${v} min`}
+                  onChange={setFocusMins}
+                  locked={!isPremium}
+                  onUnlock={openPaywall}
+                />
+              }
             />
-          </View>
+            <Divider />
 
-          <View style={styles.card}>
-            <Text style={styles.pickerLabel}>Short Break</Text>
-            <DurationPicker
-              options={SHORT_BREAK_OPTIONS}
-              selected={shortBreakMins}
-              onSelect={setShortBreakMins}
-              isPremium={isPremium}
-              onUpgrade={() => setPaywallVisible(true)}
+            {/* Short break */}
+            <SettingRow
+              title="Short break"
+              sub={isPremium ? undefined : 'Pro feature'}
+              right={
+                <Stepper
+                  value={shortBreakMins}
+                  min={1}
+                  max={30}
+                  step={1}
+                  format={(v) => `${v} min`}
+                  onChange={setShortBreakMins}
+                  locked={!isPremium}
+                  onUnlock={openPaywall}
+                />
+              }
             />
-          </View>
+            <Divider />
 
-          <View style={styles.card}>
-            <Text style={styles.pickerLabel}>Long Break</Text>
-            <DurationPicker
-              options={LONG_BREAK_OPTIONS}
-              selected={longBreakMins}
-              onSelect={setLongBreakMins}
-              isPremium={isPremium}
-              onUpgrade={() => setPaywallVisible(true)}
+            {/* Long break */}
+            <SettingRow
+              title="Long break"
+              sub={isPremium ? undefined : 'Pro feature'}
+              right={
+                <Stepper
+                  value={longBreakMins}
+                  min={5}
+                  max={60}
+                  step={5}
+                  format={(v) => `${v} min`}
+                  onChange={setLongBreakMins}
+                  locked={!isPremium}
+                  onUnlock={openPaywall}
+                />
+              }
             />
-          </View>
-        </View>
+            <Divider />
 
-        {/* Behaviour */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Behaviour</Text>
-          <View style={styles.card}>
+            {/* Sessions before long break — available to all users */}
+            <SettingRow
+              title="Sessions before long break"
+              sub="Focus sessions per cycle"
+              right={
+                <Stepper
+                  value={sessionsBeforeLongBreak}
+                  min={2}
+                  max={8}
+                  step={1}
+                  format={(v) => String(v)}
+                  onChange={setSessionsBeforeLongBreak}
+                />
+              }
+            />
+          </Card>
+
+          {/* Behaviour toggles */}
+          <Card>
             <ToggleRow
-              title="Auto-start next session"
-              sub="Automatically start break and focus timers"
-              value={autoStart}
-              onChange={setAutoStart}
+              title="Auto-start breaks"
+              sub="Start break automatically after focus"
+              value={autoStartBreaks}
+              onChange={setAutoStartBreaks}
             />
-            <View style={styles.divider} />
+            <Divider />
+            <ToggleRow
+              title="Auto-start focus"
+              sub="Start focus automatically after breaks"
+              value={autoStartFocus}
+              onChange={setAutoStartFocus}
+            />
+            <Divider />
             <ToggleRow
               title="Keep screen awake"
               sub="Prevent screen from sleeping during sessions"
               value={keepAwakeEnabled}
               onChange={setKeepAwakeEnabled}
             />
-          </View>
+          </Card>
         </View>
 
-        {/* Notifications */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* SECTION 2: Sound Settings                                         */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
+          <SectionHeader title="Sound Settings" />
+          <Card>
+            <SettingRow
+              title="Default volume"
+              sub="Applied when sounds are toggled on"
+              right={
+                <Stepper
+                  value={defaultVolume}
+                  min={0.1}
+                  max={1.0}
+                  step={0.1}
+                  format={(v) => `${Math.round(v * 100)}%`}
+                  onChange={setDefaultVolume}
+                />
+              }
+            />
+            <Divider />
+            <SettingRow
+              title="Fade-in duration"
+              sub="Seconds to fade in when sounds start"
+              right={
+                <Stepper
+                  value={fadeInDuration}
+                  min={0}
+                  max={10}
+                  step={1}
+                  format={(v) => (v === 0 ? 'Off' : `${v}s`)}
+                  onChange={setFadeInDuration}
+                />
+              }
+            />
+          </Card>
+        </View>
 
-          <View style={styles.card}>
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* SECTION 3: Notification Settings                                  */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        <View style={styles.section}>
+          <SectionHeader title="Notifications" />
+          <Card>
+            {/* Master toggle */}
             <ToggleRow
               title="Session complete"
-              sub="Alert when a focus session or break ends"
-              value={notificationsEnabled}
-              onChange={handleToggleNotifications}
+              sub="Alert when a focus session ends"
+              value={notificationsEnabled && sessionCompleteAlert}
+              onChange={async (v) => {
+                if (v && !notificationsEnabled) {
+                  // Turning on when master was off — request permission first
+                  await handleToggleNotifications(true);
+                }
+                setSessionCompleteAlert(v);
+              }}
             />
-            <View style={styles.divider} />
+            <Divider />
 
+            {/* Sub-section dimmed when notifications off */}
             <View style={[!notificationsEnabled && styles.disabledSection]}>
+              <ToggleRow
+                title="Break reminder"
+                sub="Alert when a break session ends"
+                value={breakReminderEnabled && notificationsEnabled}
+                onChange={notificationsEnabled ? setBreakReminderEnabled : () => {}}
+              />
+              <Divider />
               <ToggleRow
                 title="Daily reminder"
                 sub="Nudge if you haven't focused yet today"
-                value={reminderEnabled && notificationsEnabled}
-                onChange={notificationsEnabled ? handleToggleReminder : () => {}}
+                value={dailyReminderEnabled && notificationsEnabled}
+                onChange={notificationsEnabled ? handleToggleDailyReminder : () => {}}
               />
-
-              {reminderEnabled && notificationsEnabled && (
-                <View style={styles.reminderTimeWrap}>
-                  <Text style={styles.reminderTimeLabel}>Remind me at</Text>
-                  <ReminderTimePicker
-                    selectedHour={reminderHour}
-                    selectedMinute={reminderMinute}
-                    onSelect={handleReminderTimeChange}
-                  />
-                </View>
+              {dailyReminderEnabled && notificationsEnabled && (
+                <TimePicker
+                  selectedHour={reminderHour}
+                  selectedMinute={reminderMinute}
+                  onSelect={handleReminderTimeChange}
+                />
               )}
             </View>
-          </View>
+          </Card>
 
-          {reminderEnabled && notificationsEnabled && (
+          {dailyReminderEnabled && notificationsEnabled && (
             <Text style={styles.reminderHint}>
-              You'll get a daily nudge at {REMINDER_TIMES.find(
-                (t) => t.hour === reminderHour && t.minute === reminderMinute
-              )?.label ?? `${reminderHour}:${String(reminderMinute).padStart(2, '0')}`} if you haven't started a session.
+              Daily nudge scheduled for {reminderTimeLabel}.
             </Text>
+          )}
+
+          {!notificationsEnabled && (
+            <Pressable style={styles.enableNotifsRow} onPress={() => handleToggleNotifications(true)}>
+              <Text style={styles.enableNotifsText}>Enable notifications →</Text>
+            </Pressable>
           )}
         </View>
 
-        {/* About */}
-        <View style={styles.aboutWrap}>
-          <Text style={styles.aboutText}>FocusBlock v1.0.0</Text>
-          <Text style={styles.aboutSub}>Built for deep work</Text>
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        {/* SECTION 4: General                                                */}
+        {/* ══════════════════════════════════════════════════════════════════ */}
+        <View style={styles.section}>
+          <SectionHeader title="General" />
+          <Card>
+            <LinkRow title="Rate FocusBlock" sub="Enjoying the app? Leave a review" onPress={handleRateApp} />
+            <Divider />
+            <LinkRow title="Share with a friend" sub="Spread the focus" onPress={handleShareApp} />
+          </Card>
+
+          {!isPremium && (
+            <Card>
+              <LinkRow
+                title="Restore Purchases"
+                sub="Already subscribed? Tap to restore Pro"
+                onPress={handleRestorePurchases}
+              />
+            </Card>
+          )}
+
+          <Card>
+            <LinkRow title="Privacy Policy" onPress={() => handleOpenURL(PRIVACY_URL)} />
+            <Divider />
+            <LinkRow title="Terms of Service" onPress={() => handleOpenURL(TERMS_URL)} />
+          </Card>
+
+          {/* Version */}
+          <View style={styles.versionWrap}>
+            <Text style={styles.versionText}>FocusBlock v{APP_VERSION}</Text>
+            {isPremium && (
+              <View style={styles.proBadgeSmall}>
+                <Text style={styles.proBadgeSmallText}>PRO</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.versionSub}>Built for deep work</Text>
         </View>
 
-        {/* Dev-only: reset premium */}
+        {/* ── Dev-only tools ──────────────────────────────────────────────── */}
         {__DEV__ && (
           <Pressable style={styles.devResetBtn} onPress={handleDevResetPremium}>
             <Text style={styles.devResetText}>Reset Premium (DEV)</Text>
@@ -416,112 +611,132 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.bgDark },
   scroll: { flex: 1 },
-  container: { paddingHorizontal: 24, paddingBottom: 48 },
+  container: { paddingHorizontal: 20, paddingBottom: 52 },
 
-  header: { paddingTop: 16, paddingBottom: 24 },
+  header: { paddingTop: 16, paddingBottom: 20 },
   screenTitle: { fontSize: 22, fontWeight: '600', color: COLORS.textSecondary },
 
-  section: { marginBottom: 24 },
+  // ── Sections
+  section: { marginBottom: 28 },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 11,
+    fontWeight: '600',
     color: COLORS.textMuted,
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
     textTransform: 'uppercase',
     marginBottom: 10,
+    paddingHorizontal: 4,
   },
 
+  // ── Card
   card: {
     backgroundColor: COLORS.surface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.surfaceBorder,
-    paddingVertical: 4,
     paddingHorizontal: 16,
     marginBottom: 8,
+    overflow: 'hidden',
   },
+  divider: { height: 1, backgroundColor: COLORS.surfaceBorder, marginHorizontal: -4 },
+
+  // ── Generic row
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
+    gap: 12,
   },
-  rowTitle: { fontSize: 14, color: COLORS.textPrimary, fontWeight: '400', marginBottom: 2 },
-  rowSub: { fontSize: 12, color: COLORS.textMuted },
-  divider: { height: 1, backgroundColor: COLORS.surfaceBorder, marginHorizontal: -4 },
+  rowLabel: { flex: 1 },
+  rowTitle: { fontSize: 14, color: COLORS.textPrimary, fontWeight: '400' },
+  rowTitleDestructive: { color: 'rgba(220,80,80,0.85)' },
+  rowSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  rowRight: { flexShrink: 0 },
+  linkArrow: { fontSize: 20, color: COLORS.textDim, lineHeight: 24 },
 
-  // Duration chips
-  pickerLabel: { fontSize: 14, color: COLORS.textPrimary, fontWeight: '400', marginTop: 14 },
-  durationPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 10 },
-  chip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+  // ── Stepper
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  stepBtn: {
+    width: 34,
+    height: 34,
     borderRadius: 10,
     backgroundColor: COLORS.surfaceHighlight,
-    alignItems: 'center',
-  },
-  chipActive: {
-    backgroundColor: 'rgba(232,168,124,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(232,168,124,0.4)',
-  },
-  chipCustom: {
-    borderWidth: 1,
-    borderColor: 'rgba(232,168,124,0.2)',
-    borderStyle: 'dashed',
-  },
-  chipText: { fontSize: 12, color: COLORS.textMuted, fontWeight: '400' },
-  chipTextActive: { color: COLORS.accent, fontWeight: '600' },
-  chipCustomText: { color: COLORS.accent },
-
-  // Custom duration input
-  customInputRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 10,
-    alignItems: 'center',
-  },
-  customInput: {
-    flex: 1,
-    height: 40,
-    borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.surfaceBorder,
-    backgroundColor: COLORS.surfaceHighlight,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    color: COLORS.textPrimary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  customInputError: {
-    borderColor: 'rgba(220,80,80,0.6)',
+  stepBtnDisabled: { opacity: 0.28 },
+  stepBtnText: {
+    fontSize: 18,
+    color: COLORS.textSecondary,
+    fontWeight: '300',
+    lineHeight: 22,
+    marginTop: -1,
   },
-  customInputBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: 'rgba(232,168,124,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(232,168,124,0.4)',
-  },
-  customInputBtnText: {
+  stepperValue: {
     fontSize: 13,
-    color: COLORS.accent,
-    fontWeight: '600',
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+    minWidth: 52,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
 
-  // Reminder time picker
+  // Locked stepper state
+  stepperLocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepperLockedValue: {
+    fontSize: 13,
+    color: COLORS.textDim,
+    fontWeight: '400',
+    minWidth: 44,
+    textAlign: 'right',
+  },
+  proBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(232,168,124,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  proBadgeText: {
+    fontSize: 11,
+    color: COLORS.accent,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+
+  // ── Notifications
   disabledSection: { opacity: 0.38, pointerEvents: 'none' },
-  reminderTimeWrap: { paddingBottom: 14 },
-  reminderTimeLabel: {
+  enableNotifsRow: { paddingHorizontal: 4, paddingTop: 4 },
+  enableNotifsText: { fontSize: 12, color: COLORS.accent },
+  reminderHint: {
+    fontSize: 12,
+    color: COLORS.textDim,
+    lineHeight: 17,
+    marginTop: -4,
+    paddingHorizontal: 4,
+  },
+
+  // ── Time picker
+  timePickerWrap: { paddingBottom: 14, paddingTop: 2 },
+  timePickerLabel: {
     fontSize: 12,
     color: COLORS.textMuted,
     marginBottom: 10,
-    marginTop: 2,
   },
-  reminderTimeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  timeChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   timeChip: {
     paddingVertical: 7,
     paddingHorizontal: 12,
@@ -533,24 +748,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(232,168,124,0.4)',
   },
-  timeChipText: { fontSize: 12, color: COLORS.textMuted, fontWeight: '400' },
+  timeChipText: { fontSize: 12, color: COLORS.textMuted },
   timeChipTextActive: { color: COLORS.accent, fontWeight: '600' },
 
-  reminderHint: {
+  // ── Version / about
+  versionWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingTop: 12,
+  },
+  versionText: { fontSize: 13, color: COLORS.textMuted, textAlign: 'center' },
+  proBadgeSmall: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  proBadgeSmallText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.bgDark,
+    letterSpacing: 1,
+  },
+  versionSub: {
     fontSize: 12,
     color: COLORS.textDim,
-    lineHeight: 17,
-    marginTop: -4,
-    paddingHorizontal: 4,
+    textAlign: 'center',
+    marginTop: 4,
   },
 
-  aboutWrap: { alignItems: 'center', paddingTop: 8 },
-  aboutText: { fontSize: 13, color: COLORS.textMuted },
-  aboutSub: { fontSize: 12, color: COLORS.textDim, marginTop: 2 },
-
-  // Dev toggle
+  // ── Dev toggle
   devResetBtn: {
-    marginTop: 20,
+    marginTop: 8,
     alignSelf: 'center',
     paddingVertical: 8,
     paddingHorizontal: 20,

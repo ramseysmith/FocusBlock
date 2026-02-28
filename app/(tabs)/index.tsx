@@ -40,10 +40,13 @@ const MODE_META = [
 type ModeIndex = 0 | 1 | 2;
 
 /** After a focus session, pick short break (idx=1) or long break (idx=2). */
-function nextModeIndex(currentIdx: ModeIndex, completedFocusSessions: number): ModeIndex {
+function nextModeIndex(
+  currentIdx: ModeIndex,
+  completedFocusSessions: number,
+  sessionsBeforeLong: number,
+): ModeIndex {
   if (currentIdx !== 0) return 0; // Any break → back to focus
-  // Every 4th focus session earns a long break
-  return completedFocusSessions % 4 === 0 ? 2 : 1;
+  return completedFocusSessions % sessionsBeforeLong === 0 ? 2 : 1;
 }
 
 function formatTime(seconds: number) {
@@ -55,7 +58,10 @@ function formatTime(seconds: number) {
 export default function TimerScreen() {
   const {
     focusMins, shortBreakMins, longBreakMins,
-    autoStart, keepAwakeEnabled, notificationsEnabled,
+    autoStartBreaks, autoStartFocus,
+    keepAwakeEnabled, notificationsEnabled,
+    sessionCompleteAlert, breakReminderEnabled,
+    sessionsBeforeLongBreak,
   } = useTimerSettings();
   const { soundStates } = useAudioMixer();
   const { recordSession } = useStatsStore();
@@ -149,13 +155,15 @@ export default function TimerScreen() {
       }).catch(() => {});
     }
 
-    const next = nextModeIndex(modeIdx, newFocusSessions);
-    const delay = autoStart ? 1500 : 0;
+    const next = nextModeIndex(modeIdx, newFocusSessions, sessionsBeforeLongBreak);
+    // isFocus=true means we just finished focus → auto-starting a break
+    const shouldAutoStart = isFocus ? autoStartBreaks : autoStartFocus;
+    const delay = shouldAutoStart ? 1500 : 0;
 
     const timer = setTimeout(() => {
       setModeIdx(next);
       setTimeLeft(modes[next].duration);
-      if (autoStart) setIsRunning(true);
+      if (shouldAutoStart) setIsRunning(true);
     }, delay);
 
     return () => clearTimeout(timer);
@@ -186,7 +194,7 @@ export default function TimerScreen() {
   };
 
   const skipToNext = () => {
-    const next = nextModeIndex(modeIdx, focusSessions);
+    const next = nextModeIndex(modeIdx, focusSessions, sessionsBeforeLongBreak);
     selectMode(next);
   };
 
@@ -201,9 +209,15 @@ export default function TimerScreen() {
       setIsRunning(false);
     } else {
       setIsRunning(true);
-      if (notificationsEnabled && timeLeft > 0) {
+      // Respect the per-type notification sub-toggles
+      const isFocusMode = modeIdx === 0;
+      const shouldNotify =
+        notificationsEnabled &&
+        timeLeft > 0 &&
+        (isFocusMode ? sessionCompleteAlert : breakReminderEnabled);
+      if (shouldNotify) {
         scheduleTimerNotification({
-          isFocus: modeIdx === 0,
+          isFocus: isFocusMode,
           durationSeconds: timeLeft,
           focusSessionsCompleted: focusSessions,
         }).then((id) => {
@@ -211,7 +225,7 @@ export default function TimerScreen() {
         });
       }
     }
-  }, [isRunning, notificationsEnabled, modeIdx, timeLeft, focusSessions, clearTimerNotif]);
+  }, [isRunning, notificationsEnabled, sessionCompleteAlert, breakReminderEnabled, modeIdx, timeLeft, focusSessions, clearTimerNotif]);
 
   const activeSoundIds = AMBIENT_SOUNDS
     .filter((s) => soundStates[s.id as SoundId]?.isPlaying)
@@ -304,7 +318,7 @@ export default function TimerScreen() {
         </View>
 
         {/* Auto-start indicator */}
-        {autoStart && (
+        {(modeIdx === 0 ? autoStartBreaks : autoStartFocus) && (
           <Text style={styles.autoStartHint}>auto-start on</Text>
         )}
 

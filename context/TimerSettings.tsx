@@ -1,87 +1,103 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext } from 'react';
+import { useSettings, SETTINGS_DEFAULTS, type AppSettings } from '../hooks/useSettings';
 
-interface Settings {
-  // Timer durations
-  focusMins: number;
-  shortBreakMins: number;
-  longBreakMins: number;
-  // Behaviour
-  autoStart: boolean;
-  keepAwakeEnabled: boolean;
-  // Notifications
-  notificationsEnabled: boolean;
-  reminderEnabled: boolean;
-  reminderHour: number;
-  reminderMinute: number;
-}
+// ── Context interface ─────────────────────────────────────────────────────────
 
-interface SettingsContextValue extends Settings {
+export interface SettingsContextValue extends AppSettings {
+  isLoaded: boolean;
+
+  // ── Individual typed setters ──────────────────────────────────────────────
   setFocusMins: (m: number) => void;
   setShortBreakMins: (m: number) => void;
   setLongBreakMins: (m: number) => void;
-  setAutoStart: (v: boolean) => void;
+  setSessionsBeforeLongBreak: (n: number) => void;
+  setAutoStartBreaks: (v: boolean) => void;
+  setAutoStartFocus: (v: boolean) => void;
   setKeepAwakeEnabled: (v: boolean) => void;
+  setDefaultVolume: (v: number) => void;
+  setFadeInDuration: (v: number) => void;
   setNotificationsEnabled: (v: boolean) => void;
-  setReminderEnabled: (v: boolean) => void;
+  setSessionCompleteAlert: (v: boolean) => void;
+  setBreakReminderEnabled: (v: boolean) => void;
+  setDailyReminderEnabled: (v: boolean) => void;
   setReminderHour: (h: number) => void;
   setReminderMinute: (m: number) => void;
+
+  // ── Backwards-compat aliases (existing consumers unchanged) ───────────────
+  /** alias for autoStartBreaks */
+  autoStart: boolean;
+  /** alias for dailyReminderEnabled */
+  reminderEnabled: boolean;
+  /** alias for setAutoStartBreaks */
+  setAutoStart: (v: boolean) => void;
+  /** alias for setDailyReminderEnabled */
+  setReminderEnabled: (v: boolean) => void;
 }
 
-const TimerSettingsContext = createContext<SettingsContextValue>({
-  focusMins: 25,
-  shortBreakMins: 5,
-  longBreakMins: 15,
+// ── Default context (before provider mounts) ──────────────────────────────────
+
+const noop = () => {};
+
+const DEFAULT_CTX: SettingsContextValue = {
+  ...SETTINGS_DEFAULTS,
+  isLoaded: false,
+  setFocusMins: noop,
+  setShortBreakMins: noop,
+  setLongBreakMins: noop,
+  setSessionsBeforeLongBreak: noop,
+  setAutoStartBreaks: noop,
+  setAutoStartFocus: noop,
+  setKeepAwakeEnabled: noop,
+  setDefaultVolume: noop,
+  setFadeInDuration: noop,
+  setNotificationsEnabled: noop,
+  setSessionCompleteAlert: noop,
+  setBreakReminderEnabled: noop,
+  setDailyReminderEnabled: noop,
+  setReminderHour: noop,
+  setReminderMinute: noop,
   autoStart: false,
-  keepAwakeEnabled: true,
-  notificationsEnabled: true,
   reminderEnabled: false,
-  reminderHour: 9,
-  reminderMinute: 0,
-  setFocusMins: () => {},
-  setShortBreakMins: () => {},
-  setLongBreakMins: () => {},
-  setAutoStart: () => {},
-  setKeepAwakeEnabled: () => {},
-  setNotificationsEnabled: () => {},
-  setReminderEnabled: () => {},
-  setReminderHour: () => {},
-  setReminderMinute: () => {},
-});
+  setAutoStart: noop,
+  setReminderEnabled: noop,
+};
+
+// ── Context + provider ────────────────────────────────────────────────────────
+
+const TimerSettingsContext = createContext<SettingsContextValue>(DEFAULT_CTX);
 
 export function TimerSettingsProvider({ children }: { children: React.ReactNode }) {
-  const [focusMins, setFocusMins] = useState(25);
-  const [shortBreakMins, setShortBreakMins] = useState(5);
-  const [longBreakMins, setLongBreakMins] = useState(15);
-  const [autoStart, setAutoStart] = useState(false);
-  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(true);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderHour, setReminderHour] = useState(9);
-  const [reminderMinute, setReminderMinute] = useState(0);
+  const { set, ...settings } = useSettings();
+
+  const value: SettingsContextValue = {
+    ...settings,
+
+    // Typed setters
+    setFocusMins:                (m) => set('focusMins', m),
+    setShortBreakMins:           (m) => set('shortBreakMins', m),
+    setLongBreakMins:            (m) => set('longBreakMins', m),
+    setSessionsBeforeLongBreak:  (n) => set('sessionsBeforeLongBreak', n),
+    setAutoStartBreaks:          (v) => set('autoStartBreaks', v),
+    setAutoStartFocus:           (v) => set('autoStartFocus', v),
+    setKeepAwakeEnabled:         (v) => set('keepAwakeEnabled', v),
+    setDefaultVolume:            (v) => set('defaultVolume', v),
+    setFadeInDuration:           (v) => set('fadeInDuration', v),
+    setNotificationsEnabled:     (v) => set('notificationsEnabled', v),
+    setSessionCompleteAlert:     (v) => set('sessionCompleteAlert', v),
+    setBreakReminderEnabled:     (v) => set('breakReminderEnabled', v),
+    setDailyReminderEnabled:     (v) => set('dailyReminderEnabled', v),
+    setReminderHour:             (h) => set('reminderHour', h),
+    setReminderMinute:           (m) => set('reminderMinute', m),
+
+    // Backwards-compat aliases
+    autoStart:        settings.autoStartBreaks,
+    reminderEnabled:  settings.dailyReminderEnabled,
+    setAutoStart:     (v) => set('autoStartBreaks', v),
+    setReminderEnabled: (v) => set('dailyReminderEnabled', v),
+  };
 
   return (
-    <TimerSettingsContext.Provider
-      value={{
-        focusMins,
-        shortBreakMins,
-        longBreakMins,
-        autoStart,
-        keepAwakeEnabled,
-        notificationsEnabled,
-        reminderEnabled,
-        reminderHour,
-        reminderMinute,
-        setFocusMins,
-        setShortBreakMins,
-        setLongBreakMins,
-        setAutoStart,
-        setKeepAwakeEnabled,
-        setNotificationsEnabled,
-        setReminderEnabled,
-        setReminderHour,
-        setReminderMinute,
-      }}
-    >
+    <TimerSettingsContext.Provider value={value}>
       {children}
     </TimerSettingsContext.Provider>
   );
