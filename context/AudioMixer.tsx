@@ -73,7 +73,9 @@ export function AudioMixerProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     Audio.setAudioModeAsync({
       playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
+      // Keep the audio session alive when the app moves to the background so
+      // ambient sounds continue playing through the lock screen.
+      staysActiveInBackground: true,
     }).catch(() => {});
 
     return () => {

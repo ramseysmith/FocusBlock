@@ -9,6 +9,7 @@ import {
   AppState,
   type AppStateStatus,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import Animated, {
@@ -34,6 +35,20 @@ import { InterstitialTrigger } from '../../components/ads/InterstitialTrigger';
 import { useAds } from '../../hooks/useAds';
 import { usePremium } from '../../context/PremiumContext';
 import { PaywallModal } from '../../components/paywall/PaywallModal';
+import { useLiveActivity } from '../../hooks/useLiveActivity';
+import {
+  activateAudioSession,
+  updateNowPlaying,
+  clearNowPlaying,
+  enableRemoteControls,
+  disableRemoteControls,
+} from '../../modules/expo-now-playing/src/index';
+import {
+  NOTIF_ACTION_START_BREAK,
+  NOTIF_ACTION_SKIP_BREAK,
+  NOTIF_ACTION_START_FOCUS,
+  NOTIF_ACTION_STOP,
+} from '../../lib/notifications';
 
 // One quote per session load
 const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -81,10 +96,19 @@ export default function TimerScreen() {
   recordSessionRef.current = recordSession;
   const onFocusSessionCompleteRef = useRef(onFocusSessionComplete);
   onFocusSessionCompleteRef.current = onFocusSessionComplete;
+  // Stable ref for lock-screen remote control callbacks (avoids stale closures)
+  const handlePlayPauseRef = useRef<() => void>(() => {});
   const notifIdRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
   const backgroundedAtRef = useRef<number | null>(null);
   const [adTrigger, setAdTrigger] = useState(0);
+  const liveActivity = useLiveActivity();
+  // How often (in ticks) we push a Live Activity update while running
+  const LA_UPDATE_INTERVAL = 10;
+  const laUpdateTickRef = useRef(0);
+  // Notification action handling via refs (avoids stale closure in AppState handler)
+  const pendingActionRef = useRef<string | null>(null);
+  const processPendingActionRef = useRef<(() => void) | null>(null);
 
   // ── Ring animation shared values ────────────────────────────────────────────
   const ringOpacity = useSharedValue(0);
@@ -137,20 +161,29 @@ export default function TimerScreen() {
   // Keep isRunningRef in sync for use in AppState handler (avoids stale closure)
   useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
 
-  // ── AppState: correct timer drift after backgrounding ─────────────────────
+  // ── AppState: correct timer drift + check pending notification actions ───────
   useEffect(() => {
     const handleAppState = (next: AppStateStatus) => {
       if (next === 'background' || next === 'inactive') {
         if (isRunningRef.current) {
           backgroundedAtRef.current = Date.now();
         }
-      } else if (next === 'active' && backgroundedAtRef.current !== null) {
-        const elapsedMs = Date.now() - backgroundedAtRef.current;
-        backgroundedAtRef.current = null;
-        if (isRunningRef.current) {
-          const elapsedSec = Math.floor(elapsedMs / 1000);
-          setTimeLeft((t) => Math.max(0, t - elapsedSec));
+      } else if (next === 'active') {
+        if (backgroundedAtRef.current !== null) {
+          const elapsedMs = Date.now() - backgroundedAtRef.current;
+          backgroundedAtRef.current = null;
+          if (isRunningRef.current) {
+            const elapsedSec = Math.floor(elapsedMs / 1000);
+            setTimeLeft((t) => Math.max(0, t - elapsedSec));
+          }
         }
+        // Process any notification action button tapped while app was backgrounded
+        AsyncStorage.getItem('@focusblock/pending_notif_action').then((action) => {
+          if (!action) return;
+          AsyncStorage.removeItem('@focusblock/pending_notif_action').catch(() => {});
+          pendingActionRef.current = action;
+          processPendingActionRef.current?.();
+        }).catch(() => {});
       }
     };
     const sub = AppState.addEventListener('change', handleAppState);
@@ -166,6 +199,49 @@ export default function TimerScreen() {
     return () => clearInterval(id);
   }, [isRunning, modeIdx, hapticPulseEnabled]);
 
+  // ── Live Activity: throttled updates every LA_UPDATE_INTERVAL seconds ───────
+  useEffect(() => {
+    if (!isRunning) return;
+    laUpdateTickRef.current += 1;
+    if (laUpdateTickRef.current % LA_UPDATE_INTERVAL !== 0) return;
+    const config = {
+      timerEnd: (Date.now() / 1000) + timeLeft,
+      totalDuration: mode.duration,
+      mode: (modeIdx === 0 ? 'focus' : modeIdx === 1 ? 'shortBreak' : 'longBreak') as
+        'focus' | 'shortBreak' | 'longBreak',
+      isRunning: true,
+      completedSessions: focusSessions,
+    };
+    liveActivity.update(config).catch(() => {});
+    updateNowPlaying({
+      title: modeIdx === 0 ? 'Focusing…' : 'On a break',
+      artist: 'FocusBlock',
+      duration: mode.duration,
+      elapsed: mode.duration - timeLeft,
+      rate: 1,
+    });
+  }, [timeLeft, isRunning]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pending notification action (e.g. "Start Break" tapped on lock screen) ──
+  // Wire the processor ref so the AppState handler can call it with fresh state.
+  useEffect(() => {
+    processPendingActionRef.current = () => {
+      const action = pendingActionRef.current;
+      if (!action) return;
+      pendingActionRef.current = null;
+      if (action === NOTIF_ACTION_STOP) {
+        setIsRunning(false);
+      } else if (action === NOTIF_ACTION_START_BREAK || action === NOTIF_ACTION_SKIP_BREAK) {
+        const next = nextModeIndex(modeIdx, focusSessions, sessionsBeforeLongBreak);
+        selectMode(next as ModeIndex);
+        if (action === NOTIF_ACTION_START_BREAK) setTimeout(() => setIsRunning(true), 100);
+      } else if (action === NOTIF_ACTION_START_FOCUS) {
+        selectMode(0);
+        setTimeout(() => setIsRunning(true), 100);
+      }
+    };
+  }); // no deps — always re-bind so the closure captures fresh state
+
   // ── Session completion handler ──────────────────────────────────────────────
   useEffect(() => {
     if (timeLeft !== 0 || !isRunning) return;
@@ -174,6 +250,18 @@ export default function TimerScreen() {
     // Notification already fired from OS; dismiss it from tray since we're in-app
     dismissDeliveredNotifications();
     notifIdRef.current = null;
+
+    // End Live Activity with a brief completion state, then clear Now Playing
+    const completedMode = modeIdx === 0 ? 'focus' : modeIdx === 1 ? 'shortBreak' : 'longBreak';
+    liveActivity.end({
+      timerEnd:          Date.now() / 1000,
+      totalDuration:     mode.duration,
+      mode:              completedMode as 'focus' | 'shortBreak' | 'longBreak',
+      isRunning:         false,
+      completedSessions: modeIdx === 0 ? focusSessions + 1 : focusSessions,
+    }).catch(() => {});
+    clearNowPlaying();
+    disableRemoteControls();
 
     // Scale pulse on every session completion
     ringScale.value = withSequence(
@@ -209,13 +297,16 @@ export default function TimerScreen() {
 
   // ── Controls ────────────────────────────────────────────────────────────────
 
-  /** Cancel any outstanding timer notification and clear the ref. */
+  /** Cancel any outstanding timer notification, end Live Activity, and clear Now Playing. */
   const clearTimerNotif = useCallback(() => {
     if (notifIdRef.current) {
       cancelNotification(notifIdRef.current);
       notifIdRef.current = null;
     }
-  }, []);
+    liveActivity.end().catch(() => {});
+    clearNowPlaying();
+    disableRemoteControls();
+  }, [liveActivity]);
 
   const selectMode = (idx: ModeIndex) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -247,10 +338,44 @@ export default function TimerScreen() {
     if (isRunning) {
       clearTimerNotif();
       setIsRunning(false);
+      // Update Live Activity to paused state (isRunning: false keeps the display visible)
+      liveActivity.update({
+        timerEnd: (Date.now() / 1000) + timeLeft,
+        totalDuration: mode.duration,
+        mode: (modeIdx === 0 ? 'focus' : modeIdx === 1 ? 'shortBreak' : 'longBreak') as
+          'focus' | 'shortBreak' | 'longBreak',
+        isRunning: false,
+        completedSessions: focusSessions,
+      }).catch(() => {});
+      updateNowPlaying({ title: 'Paused', artist: 'FocusBlock', elapsed: mode.duration - timeLeft, rate: 0 });
     } else {
       setIsRunning(true);
+      laUpdateTickRef.current = 0;
+      const isFocusMode  = modeIdx === 0;
+      const modeKey = isFocusMode ? 'focus' : modeIdx === 1 ? 'shortBreak' : 'longBreak';
+      const laConfig = {
+        timerEnd:          (Date.now() / 1000) + timeLeft,
+        totalDuration:     mode.duration,
+        mode:              modeKey as 'focus' | 'shortBreak' | 'longBreak',
+        isRunning:         true,
+        completedSessions: focusSessions,
+      };
+      // Start a new Live Activity (or restart if there's already one)
+      liveActivity.start(laConfig).catch(() => {});
+      // Activate background audio + Now Playing
+      activateAudioSession();
+      enableRemoteControls({
+        onPlay:  () => { if (!isRunningRef.current) handlePlayPauseRef.current(); },
+        onPause: () => { if (isRunningRef.current)  handlePlayPauseRef.current(); },
+      });
+      updateNowPlaying({
+        title:    isFocusMode ? 'Focus Session' : 'Break',
+        artist:   'FocusBlock',
+        duration: mode.duration,
+        elapsed:  mode.duration - timeLeft,
+        rate:     1,
+      });
       // Respect the per-type notification sub-toggles
-      const isFocusMode = modeIdx === 0;
       const shouldNotify =
         notificationsEnabled &&
         timeLeft > 0 &&
@@ -265,7 +390,10 @@ export default function TimerScreen() {
         });
       }
     }
-  }, [isRunning, notificationsEnabled, sessionCompleteAlert, breakReminderEnabled, modeIdx, timeLeft, focusSessions, clearTimerNotif]);
+  }, [isRunning, notificationsEnabled, sessionCompleteAlert, breakReminderEnabled, modeIdx, timeLeft, focusSessions, mode, clearTimerNotif, liveActivity]);
+
+  // Keep the stable ref in sync with the latest memoized version
+  handlePlayPauseRef.current = handlePlayPause;
 
   const activeSoundIds = AMBIENT_SOUNDS
     .filter((s) => soundStates[s.id as SoundId]?.isPlaying)

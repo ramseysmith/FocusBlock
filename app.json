@@ -20,6 +20,14 @@
         "tabletImage": "./assets/splash-tablet.png",
         "resizeMode": "cover",
         "backgroundColor": "#0d0b11"
+      },
+      "infoPlist": {
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": false,
+        "UIBackgroundModes": ["audio"]
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.ramseysmith.focusblock"]
       }
     },
     "android": {

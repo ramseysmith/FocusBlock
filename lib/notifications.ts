@@ -19,8 +19,47 @@ Notifications.setNotificationHandler({
 
 const REMINDER_ID_KEY = '@focusblock/reminder_notif_id';
 
+// Notification action identifiers
+export const NOTIF_ACTION_START_BREAK  = 'START_BREAK';
+export const NOTIF_ACTION_SKIP_BREAK   = 'SKIP_BREAK';
+export const NOTIF_ACTION_START_FOCUS  = 'START_FOCUS';
+export const NOTIF_ACTION_STOP         = 'STOP';
+
 const TIMER_CHANNEL   = 'focusblock_timer';
 const REMINDER_CHANNEL = 'focusblock_reminder';
+
+// ── Notification categories with action buttons ────────────────────────────────
+// Call once at app startup (e.g. in setupAndroidChannels / _layout.tsx).
+
+export async function setupNotificationCategories(): Promise<void> {
+  if (Platform.OS !== 'ios') return; // Android uses notification channels instead
+  await Promise.all([
+    Notifications.setNotificationCategoryAsync('focus_complete', [
+      {
+        identifier: NOTIF_ACTION_START_BREAK,
+        buttonTitle: 'Start Break',
+        options: { opensAppToForeground: false },
+      },
+      {
+        identifier: NOTIF_ACTION_SKIP_BREAK,
+        buttonTitle: 'Skip Break',
+        options: { opensAppToForeground: true },
+      },
+    ]),
+    Notifications.setNotificationCategoryAsync('break_complete', [
+      {
+        identifier: NOTIF_ACTION_START_FOCUS,
+        buttonTitle: 'Start Focus',
+        options: { opensAppToForeground: false },
+      },
+      {
+        identifier: NOTIF_ACTION_STOP,
+        buttonTitle: 'Stop',
+        options: { opensAppToForeground: false },
+      },
+    ]),
+  ]);
+}
 
 // ── Android notification channels ─────────────────────────────────────────────
 
@@ -91,6 +130,9 @@ export async function scheduleTimerNotification({
         sound: true,
         data: { type: isFocus ? 'focus_end' : 'break_end' },
         ...(Platform.OS === 'android' && { channelId: TIMER_CHANNEL }),
+        ...(Platform.OS === 'ios' && {
+          categoryIdentifier: isFocus ? 'focus_complete' : 'break_complete',
+        }),
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,

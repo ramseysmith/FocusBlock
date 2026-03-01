@@ -11,8 +11,11 @@ import {
   recordFocusSession,
   calcStreak,
   calcTotals,
+  getWeekData,
+  toDateKey,
   type DailyData,
 } from '../lib/storage';
+import { writeWidgetData } from '../lib/appGroupStorage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,21 @@ export function StatsProvider({ children }: { children: React.ReactNode }) {
   const recordSession = useCallback(async (durationMinutes: number) => {
     const updated = await recordFocusSession(durationMinutes);
     setDailyData(updated);
+    // Push fresh data to App Group so lock-screen widgets update immediately
+    const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const week = getWeekData(updated, 0);
+    const todayKey = toDateKey(new Date());
+    const todayRecord = updated[todayKey] ?? { sessions: 0, minutes: 0 };
+    writeWidgetData({
+      streak:        calcStreak(updated),
+      todayMinutes:  todayRecord.minutes,
+      todaySessions: todayRecord.sessions,
+      weekData:      week.map((d, i) => ({
+        label:   dayLabels[i] ?? d.label[0],
+        minutes: d.minutes,
+        isToday: d.isToday,
+      })),
+    });
   }, []);
 
   const { sessions: totalSessions, minutes: totalMinutes } = calcTotals(dailyData);

@@ -1,0 +1,11 @@
+{
+  "name": "expo-live-activity",
+  "version": "1.0.0",
+  "description": "Expo native module for iOS Live Activities and Dynamic Island (ActivityKit)",
+  "main": "src/index.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}

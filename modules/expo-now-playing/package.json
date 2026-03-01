@@ -1,0 +1,11 @@
+{
+  "name": "expo-now-playing",
+  "version": "1.0.0",
+  "description": "Expo native module for MPNowPlayingInfoCenter and MPRemoteCommandCenter lock screen controls",
+  "main": "src/index.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "expo-app-group-storage",
+  "version": "1.0.0",
+  "description": "Expo native module for App Group UserDefaults and WidgetCenter timeline reloads",
+  "main": "src/index.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}
