@@ -34,7 +34,6 @@ export default function config({ config }: ConfigContext): ExpoConfig {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     plugins: [
       ...(Array.isArray(config.plugins) ? config.plugins : []),
-      ['react-native-purchases', {}],
       [
         'react-native-google-mobile-ads',
         {
