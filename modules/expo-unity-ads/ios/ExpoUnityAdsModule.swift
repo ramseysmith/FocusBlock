@@ -6,6 +6,7 @@ import UnityAds
 private var gInitDelegate: UnityInitDelegate?
 private var gLoadDelegates: [String: UnityLoadDelegate] = [:]
 private var gShowDelegates: [String: UnityShowDelegate] = [:]
+private var gLoadedPlacements: Set<String> = []
 
 public class ExpoUnityAdsModule: Module {
 
@@ -39,6 +40,7 @@ public class ExpoUnityAdsModule: Module {
       let delegate = UnityLoadDelegate(
         onLoaded: {
           gLoadDelegates.removeValue(forKey: placementId)
+          gLoadedPlacements.insert(placementId)
           promise.resolve(nil)
         },
         onFailed: { error, message in
@@ -56,6 +58,7 @@ public class ExpoUnityAdsModule: Module {
       let delegate = UnityShowDelegate(
         onComplete: { completed in
           gShowDelegates.removeValue(forKey: placementId)
+          gLoadedPlacements.remove(placementId)
           promise.resolve([
             "placementId": placementId,
             "completed": completed,
@@ -63,6 +66,7 @@ public class ExpoUnityAdsModule: Module {
         },
         onFailed: { error, message in
           gShowDelegates.removeValue(forKey: placementId)
+          gLoadedPlacements.remove(placementId)
           promise.reject("ERR_UNITY_SHOW", "\(error.rawValue): \(message)")
         }
       )
@@ -89,7 +93,7 @@ public class ExpoUnityAdsModule: Module {
     }
 
     Function("isLoaded") { (placementId: String) -> Bool in
-      UnityAds.isReady(placementId)
+      gLoadedPlacements.contains(placementId)
     }
   }
 }
@@ -145,8 +149,8 @@ private class UnityShowDelegate: NSObject, UnityAdsShowDelegate {
   func unityAdsShowClick(_ placementId: String) {}
 
   func unityAdsShowComplete(_ placementId: String,
-                             withFinishState state: UnityAdsShowCompletionState) {
-    onComplete(state == .completed)
+                             withFinish state: UnityAdsShowCompletionState) {
+    onComplete(state == UnityAdsShowCompletionState.showCompletionStateCompleted)
   }
 
   func unityAdsShowFailed(_ placementId: String,

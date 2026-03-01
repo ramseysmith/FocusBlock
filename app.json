@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.focusblock.app",
+      "bundleIdentifier": "com.ramseysmith.focusblock",
       "splash": {
         "image": "./assets/splash.png",
         "tabletImage": "./assets/splash-tablet.png",
