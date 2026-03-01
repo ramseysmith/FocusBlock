@@ -50,13 +50,14 @@ ext_target = project.new_target(:app_extension, EXT_NAME, :ios, '16.2')
 
 ext_target.build_configuration_list.build_configurations.each do |config|
   config.build_settings.merge!(
+    'PRODUCT_NAME'               => EXT_NAME,
     'PRODUCT_BUNDLE_IDENTIFIER'  => EXT_BUNDLE_ID,
     'IPHONEOS_DEPLOYMENT_TARGET' => '16.2',
     'SWIFT_VERSION'              => '5.9',
     'SKIP_INSTALL'               => 'YES',
     'CODE_SIGN_ENTITLEMENTS'     => "#{EXT_NAME}/#{EXT_NAME}.entitlements",
     'INFOPLIST_FILE'             => "#{EXT_NAME}/Info.plist",
-    'LD_RUNPATH_SEARCH_PATHS'    => '$(inherited) @executable_path/../../Frameworks',
+    'LD_RUNPATH_SEARCH_PATHS'    => ['$(inherited)', '@executable_path/../../Frameworks'],
     'TARGETED_DEVICE_FAMILY'     => '1,2',
     'SUPPORTS_MACCATALYST'       => 'NO',
     'ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES' => 'NO',
@@ -112,6 +113,22 @@ if main_target
     embed_phase = main_target.new_copy_files_build_phase('Embed Foundation Extensions')
     embed_phase.dst_subfolder_spec = '13'   # PlugIns (App Extensions)
     embed_phase.dst_path           = ''
+
+    # Move embed phase BEFORE any script phases with undeclared outputs
+    # (specifically [CP-User] [RNGoogleMobileAds] Configuration) to avoid
+    # ExtractAppIntentsMetadata → embed → script → Info.plist build cycle.
+    rn_phase = main_target.shell_script_build_phases.find { |p|
+      p.name&.include?('RNGoogleMobileAds')
+    }
+    if rn_phase
+      phases = main_target.build_phases
+      embed_idx = phases.index(embed_phase)
+      rn_idx    = phases.index(rn_phase)
+      if embed_idx && rn_idx && embed_idx > rn_idx
+        phases.delete(embed_phase)
+        phases.insert(rn_idx, embed_phase)
+      end
+    end
   end
 
   # Embed the extension product

@@ -29,17 +29,14 @@ type AudioMixerContextValue = {
 
 export const SOUND_IDS: SoundId[] = ['rain', 'forest', 'ocean', 'fire', 'cafe', 'wind'];
 
-/**
- * Static asset map — require() must be static (no dynamic keys).
- * Replace these WAV files with royalty-free loops from e.g. freesound.org.
- */
+// Static asset map — require() must use static string literals (no dynamic keys).
 const SOUND_ASSETS: Record<SoundId, number> = {
-  rain:   require('../assets/sounds/rain.wav'),
-  forest: require('../assets/sounds/forest.wav'),
-  ocean:  require('../assets/sounds/ocean.wav'),
-  fire:   require('../assets/sounds/fire.wav'),
-  cafe:   require('../assets/sounds/cafe.wav'),
-  wind:   require('../assets/sounds/wind.wav'),
+  rain:   require('../assets/sounds/rain.mp3'),
+  forest: require('../assets/sounds/forest.mp3'),
+  ocean:  require('../assets/sounds/ocean.mp3'),
+  fire:   require('../assets/sounds/fire.mp3'),
+  cafe:   require('../assets/sounds/cafe.mp3'),
+  wind:   require('../assets/sounds/wind.mp3'),
 };
 
 const DEFAULT_VOLUME = 0.7;
