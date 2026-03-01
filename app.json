@@ -8,12 +8,18 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
       "backgroundColor": "#0d0b11"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "splash": {
+        "image": "./assets/splash.png",
+        "tabletImage": "./assets/splash-tablet.png",
+        "resizeMode": "cover",
+        "backgroundColor": "#0d0b11"
+      }
     },
     "android": {
       "adaptiveIcon": {
