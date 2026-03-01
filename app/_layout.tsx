@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 import { TimerSettingsProvider } from '../context/TimerSettings';
 import { AudioMixerProvider } from '../context/AudioMixer';
@@ -10,37 +11,49 @@ import { AchievementProvider } from '../context/AchievementContext';
 import { setupAndroidChannels } from '../lib/notifications';
 import { cleanupExpiredUnlocks } from '../lib/adStorage';
 import { AdManager } from '../src/services/ads/AdManager';
+import AnimatedSplash from '../components/AnimatedSplash';
+
+// Keep the native static splash up until we're ready to play the animation.
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [appIsReady, setAppIsReady] = useState(false);
+  const [animDone, setAnimDone] = useState(false);
+
   useEffect(() => {
-    // Set up Android notification channels (no-op on iOS)
-    setupAndroidChannels();
+    async function prepare() {
+      setupAndroidChannels();
+      AdManager.initialize();
+      await cleanupExpiredUnlocks().catch(() => {});
+      setAppIsReady(true);
+    }
+    prepare();
 
-    // Initialize ad SDK (falls back to mock on error)
-    AdManager.initialize();
-
-    // Remove expired sound unlocks
-    cleanupExpiredUnlocks().catch(() => {});
-
-    // Handle taps on delivered notifications — bring app to foreground naturally
-    const sub = Notifications.addNotificationResponseReceivedListener(() => {
-      // expo-router handles foreground; no explicit navigation needed here
-    });
-
+    const sub = Notifications.addNotificationResponseReceivedListener(() => {});
     return () => sub.remove();
   }, []);
+
+  // As soon as the app is ready, hide the native splash so the animated one takes over.
+  useEffect(() => {
+    if (appIsReady) SplashScreen.hideAsync();
+  }, [appIsReady]);
 
   return (
     <PremiumProvider>
       <TimerSettingsProvider>
         <StatsProvider>
           <AchievementProvider>
-          <AudioMixerProvider>
-            <StatusBar style="light" />
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
-          </AudioMixerProvider>
+            <AudioMixerProvider>
+              <StatusBar style="light" />
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" />
+              </Stack>
+
+              {/* Animated splash sits on top of the app until the animation finishes */}
+              {appIsReady && !animDone && (
+                <AnimatedSplash onFinish={() => setAnimDone(true)} />
+              )}
+            </AudioMixerProvider>
           </AchievementProvider>
         </StatsProvider>
       </TimerSettingsProvider>
