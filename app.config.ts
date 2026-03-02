@@ -1,5 +1,6 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 import { withUnityAds } from './plugins/withUnityAds';
+import { withExpoAvCompat } from './plugins/withExpoAvCompat';
 
 // ── Ad provider ────────────────────────────────────────────────────────────────
 // Change this one value (or set AD_PROVIDER env var) to swap ad networks.
@@ -42,6 +43,7 @@ export default function config({ config }: ConfigContext): ExpoConfig {
         },
       ],
       withUnityAds,
+      withExpoAvCompat,
     ] as any,
 
     extra: {

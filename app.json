@@ -24,10 +24,16 @@
       "infoPlist": {
         "NSSupportsLiveActivities": true,
         "NSSupportsLiveActivitiesFrequentUpdates": false,
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
-        "com.apple.security.application-groups": ["group.com.ramseysmith.focusblock"]
+        "com.apple.security.application-groups": [
+          "group.com.ramseysmith.focusblock",
+          "group.com.ramseysmith.focusblock"
+        ]
       }
     },
     "android": {
@@ -54,6 +60,36 @@
           "androidMode": "default"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "adProvider": "mock",
+      "mediationEnabled": false,
+      "admobAndroidAppId": "ca-app-pub-3940256099942544~3347511713",
+      "admobIosAppId": "ca-app-pub-3940256099942544~1458002511",
+      "admobBannerAndroid": "",
+      "admobBannerIos": "",
+      "admobInterstitialAndroid": "",
+      "admobInterstitialIos": "",
+      "admobRewardedAndroid": "",
+      "admobRewardedIos": "",
+      "unityGameId": "",
+      "unityBannerPlacementIos": "Banner_iOS",
+      "unityBannerPlacementAndroid": "Banner_Android",
+      "unityInterstitialPlacementIos": "Interstitial_iOS",
+      "unityInterstitialPlacementAndroid": "Interstitial_Android",
+      "unityRewardedPlacementIos": "Rewarded_iOS",
+      "unityRewardedPlacementAndroid": "Rewarded_Android",
+      "unityBannerPlacement": "Banner_Android",
+      "unityInterstitialPlacement": "Interstitial_Android",
+      "unityRewardedPlacement": "Rewarded_Android",
+      "purchaseProvider": "mock",
+      "revenueCatIosKey": "",
+      "revenueCatAndroidKey": "",
+      "revenueCatEntitlementId": "premium",
+      "router": {},
+      "eas": {
+        "projectId": "6c28a2bf-1a6f-4e4e-b392-a223f1360bd3"
+      }
+    }
   }
 }
